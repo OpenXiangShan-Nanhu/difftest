@@ -50,6 +50,7 @@ reg  [63:0] io_logCtrl_log_end;
 wire [63:0] io_logCtrl_log_level;
 wire        io_perfInfo_clean;
 wire        io_perfInfo_dump;
+reg         io_simFinal;
 wire        io_uart_out_valid;
 wire [ 7:0] io_uart_out_ch;
 wire        io_uart_in_valid;
@@ -67,7 +68,7 @@ initial begin
   clock = 0;
 `endif // WIRE_CLK
   reset = 1;
-
+  io_simFinal = 1'b0;
 `ifndef PALLADIUM
   // enable waveform
   if ($test$plusargs("dump-wave")) begin
@@ -168,6 +169,7 @@ SimTop sim(
   .io_uart_out_ch(io_uart_out_ch),
   .io_uart_in_valid(io_uart_in_valid),
   .io_uart_in_ch(io_uart_in_ch),
+  .io_simFinal(io_simFinal),
   .difftest_step(difftest_step)
 );
 
@@ -188,10 +190,12 @@ always @(posedge clock) begin
     end
     else begin
       $display("\033[32mHIT GOOD TRAP!\033[0m");
-      $finish;
+      io_simFinal <= 1'b1;
     end
   end
 end
+
+always @(posedge clock) if(io_simFinal) $finish;
 
 `ifndef TB_NO_DPIC
 reg [`STEP_WIDTH - 1:0] difftest_step_delay;
@@ -226,7 +230,7 @@ always @(posedge clock) begin
     // max cycles
     if (max_cycles > 0 && n_cycles >= max_cycles) begin
       $display("EXCEEDED MAX CYCLE: %d", max_cycles);
-      $finish();
+      io_simFinal <= 1'b1;
     end
 
 `ifndef TB_NO_DPIC
@@ -237,14 +241,14 @@ always @(posedge clock) begin
 `ifdef DIFFTEST_DEFERRED_RESULT
     else if (simv_result) begin
       $display("DIFFTEST FAILED at cycle %d", n_cycles);
-      $finish();
+      io_simFinal <= 1'b1;
     end
 `else
     else if (|difftest_step_delay) begin
       // check errors
       if (simv_nstep(difftest_step_delay)) begin
         $display("DIFFTEST FAILED at cycle %d", n_cycles);
-        $finish();
+        io_simFinal <= 1'b1;
       end
     end
 `endif // DIFFTEST_DEFERRED_RESULT
