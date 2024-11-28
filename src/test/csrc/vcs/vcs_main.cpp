@@ -121,10 +121,12 @@ extern "C" uint64_t get_stuck_limit() {
 #ifndef CONFIG_NO_DIFFTEST
 extern const char *difftest_ref_so;
 extern "C" void set_diff_ref_so(char *s) {
+#ifndef CONFIG_NO_DIFFTEST
   printf("diff-test ref so:%s\n", s);
   char *buf = (char *)malloc(256);
   strcpy(buf, s);
   difftest_ref_so = buf;
+#endif
 }
 #else
 extern "C" void set_diff_ref_so(char *s) {
