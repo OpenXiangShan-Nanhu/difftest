@@ -127,9 +127,11 @@ static inline void print_help(const char *file) {
 inline EmuArgs parse_args(int argc, const char *argv[]) {
   EmuArgs args;
   int long_index = 0;
-#ifndef CONFIG_NO_DIFFTEST
+#ifdef CONFIG_NO_DIFFTEST
+  const char *difftest_ref_so = NULL;
+#else
   extern const char *difftest_ref_so;
-#endif // CONFIG_NO_DIFFTEST
+#endif
 
   /* clang-format off */
   const struct option long_options[] = {
@@ -191,9 +193,7 @@ inline EmuArgs parse_args(int argc, const char *argv[]) {
           case 1: args.enable_waveform = true; continue;
           case 2: args.enable_snapshot = false; continue;
           case 3: args.force_dump_result = true; continue;
-#ifndef CONFIG_NO_DIFFTEST
           case 4: difftest_ref_so = optarg; continue;
-#endif // CONFIG_NO_DIFFTEST
           case 5: args.enable_diff = false; continue;
           case 6: args.enable_fork = true; continue;
           case 7: enable_simjtag = true; continue;
