@@ -22,7 +22,6 @@
 #include "dut.h"
 #include "lightsss.h"
 #include "snapshot.h"
-#include "difftest.h"
 #include "VSimTop.h"
 #include "VSimTop__Syms.h"
 #ifdef ENABLE_FST
