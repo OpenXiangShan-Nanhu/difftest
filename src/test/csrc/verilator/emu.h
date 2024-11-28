@@ -24,6 +24,8 @@
 #include "lightsss.h"
 #include "snapshot.h"
 #include <sys/types.h>
+#include "VSimTop.h"
+#include "VSimTop__Syms.h"
 #ifdef ENABLE_FST
 #include <verilated_fst_c.h>
 #else
