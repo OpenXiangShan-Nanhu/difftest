@@ -15,16 +15,39 @@
 # See the Mulan PSL v2 for more details.
 #***************************************************************************************
 
-VERILATOR_BUILD_DIR = $(BUILD_DIR)/verilator-compile
-VERILATOR_TARGET = $(VERILATOR_BUILD_DIR)/$(EMU_ELF_NAME)
+EMU          = $(BUILD_DIR)/emu
+EMU_TOP      = SimTop
 
-########## Verilator Configuration Options ##########
-VERILATOR_FLAGS = $(SIM_VFLAGS)
+EMU_SIM_DIR    = $(SIM_DIR)/emu
 
-VERILATOR_CSRC_DIR = $(abspath ./src/test/csrc/verilator)
-VERILATOR_CXXFILES = $(EMU_CXXFILES) $(shell find $(VERILATOR_CSRC_DIR) -name "*.cpp")
-VERILATOR_CXXFLAGS = $(EMU_CXXFLAGS) -I$(VERILATOR_CSRC_DIR) -DVERILATOR --std=c++17
-VERILATOR_LDFLAGS  = $(SIM_LDFLAGS) -ldl
+ifeq ($(SIMDIR),1)
+	EMU = $(SIM_DIR)/emu/comp/emu
+	EMU_MK = $(SIM_DIR)/emu/comp/V$(EMU_TOP).mk
+	EMU_DIR = $(SIM_DIR)/emu/comp
+else
+	EMU = $(BUILD_DIR)/emu
+	EMU_MK = $(BUILD_DIR)/emu-compile/V$(EMU_TOP).mk
+	EMU_DIR = $(BUILD_DIR)/emu-compile
+endif
+
+EMU_CSRC_DIR   = $(abspath ./src/test/csrc/verilator)
+EMU_CONFIG_DIR = $(abspath ./config)
+
+EMU_CXXFILES  = $(SIM_CXXFILES) $(shell find $(EMU_CSRC_DIR) -name "*.cpp")
+EMU_CXXFLAGS  = $(SIM_CXXFLAGS) -I$(EMU_CSRC_DIR)
+EMU_CXXFLAGS += -DVERILATOR -DNUM_CORES=$(NUM_CORES) --std=c++17
+EMU_LDFLAGS   = $(SIM_LDFLAGS) -ldl
+
+# DiffTest support
+ifneq ($(NO_DIFF), 1)
+VEXTRA_FLAGS += +define+DIFFTEST
+endif
+
+# Link fuzzer libraries
+ifneq ($(FUZZER_LIB), )
+# the target is named as fuzzer for clarity
+EMU = $(BUILD_DIR)/fuzzer
+endif
 
 # Verilator binary
 VERILATOR ?= verilator
@@ -99,8 +122,10 @@ VERILATOR_FLAGS_ALL =               \
   -o $(VERILATOR_TARGET)            \
   $(VERILATOR_FLAGS)
 
-VERILATOR_MK = $(VERILATOR_BUILD_DIR)/V$(EMU_TOP).mk
-VERILATOR_HEADERS := $(EMU_HEADERS) $(shell find $(VERILATOR_CSRC_DIR) -name "*.h")
+EMU_DEPS  := $(SIM_VSRC) $(EMU_CXXFILES)
+EMU_HEADERS := $(shell find $(EMU_CSRC_DIR) -name "*.h")     \
+               $(shell find $(SIM_CSRC_DIR) -name "*.h")     \
+               $(shell find $(DIFFTEST_CSRC_DIR) -name "*.h")
 
 # Profile Guided Optimization
 VERILATOR_PGO_DIR  = $(VERILATOR_BUILD_DIR)/pgo
