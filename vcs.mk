@@ -17,16 +17,18 @@
 
 VCS           = vcs
 VCS_TOP       = tb_top
-VCS_TARGET    = $(abspath $(BUILD_DIR)/simv)
-VCS_BUILD_DIR = $(abspath $(BUILD_DIR)/simv-compile)
-VCS_RUN_DIR   = $(abspath $(BUILD_DIR)/$(notdir $(RUN_BIN)))
+VCS_DIR   	  = $(SIM_DIR)/vcs
+
+VCS_TARGET    = $(abspath $(VCS_DIR)/comp/simv)
+VCS_BUILD_DIR = $(abspath $(VCS_DIR)/comp/simv-compile)
+VCS_RUN_DIR   = $(abspath $(VCS_DIR)/$(RUN_BIN))
 
 VCS_CSRC_DIR   = $(abspath ./src/test/csrc/vcs)
 VCS_CONFIG_DIR = $(abspath ./config)
 
 VCS_CXXFILES  = $(SIM_CXXFILES) $(shell find $(VCS_CSRC_DIR) -name "*.cpp")
 VCS_CXXFLAGS  = $(SIM_CXXFLAGS) -I$(VCS_CSRC_DIR) -DNUM_CORES=$(NUM_CORES)
-VCS_LDFLAGS   = $(SIM_LDFLAGS) -lpthread -ldl
+VCS_LDFLAGS   = -Wl,--no-as-needed $(SIM_LDFLAGS) -lpthread -ldl
 
 # DiffTest support
 ifneq ($(NO_DIFF),1)
@@ -74,6 +76,7 @@ VCS_FLAGS += -Mdir $(VCS_BUILD_DIR)  --compiler gcc
 VCS_CXXFLAGS += -std=c++20
 else
 VCS_FLAGS += -full64 +v2k -timescale=1ns/1ns -sverilog -debug_access+all +lint=TFIPC-L
+VCS_FLAGS += -lca -fgp -kdb +nospecify +notimingcheck
 VCS_FLAGS += -Mdir=$(VCS_BUILD_DIR) -j200
 VCS_FLAGS += +define+VCS
 ifeq ($(ENABLE_XPROP),1)
@@ -85,7 +88,7 @@ endif
 VCS_CXXFLAGS += -std=c++11 -static
 endif
 
-VCS_FLAGS += -o $(VCS_TARGET)
+VCS_FLAGS += -o $(VCS_TARGET) -l $(VCS_DIR)/comp/vcs.log
 ifneq ($(ENABLE_XPROP),1)
 VCS_FLAGS += +define+RANDOMIZE_GARBAGE_ASSIGN
 VCS_FLAGS += +define+RANDOMIZE_INVALID_ASSIGN
@@ -97,18 +100,19 @@ endif
 VCS_FLAGS += +define+RANDOMIZE_DELAY=1
 # SRAM lib defines
 VCS_FLAGS += +define+UNIT_DELAY +define+no_warning
-# C++ flags
-VCS_FLAGS += -CFLAGS "$(VCS_CXXFLAGS)" -LDFLAGS "$(VCS_LDFLAGS)"
 # search build for other missing verilog files
 VCS_FLAGS += -y $(RTL_DIR) +libext+.v +libext+.sv
 # search generated-src for verilog included files
 VCS_FLAGS += +incdir+$(GEN_VSRC_DIR)
+# C++ flags
+VCS_FLAGS += -CFLAGS "$(VCS_CXXFLAGS)" -LDFLAGS "$(VCS_LDFLAGS)"
 # enable fsdb dump
 VCS_FLAGS += $(EXTRA)
 
 VCS_VSRC_DIR = $(abspath ./src/test/vsrc/vcs)
 VCS_VFILES   = $(SIM_VSRC) $(shell find $(VCS_VSRC_DIR) -name "*.v")
 $(VCS_TARGET): $(SIM_TOP_V) $(VCS_CXXFILES) $(VCS_VFILES)
+	$(shell if [ ! -e $(VCS_DIR)/comp ];then mkdir -p $(VCS_DIR)/comp; fi)
 	$(VCS) $(VCS_FLAGS) $(SIM_TOP_V) $(VCS_CXXFILES) $(VCS_VFILES)
 ifeq ($(VCS),verilator)
 	$(MAKE) -s -C $(VCS_BUILD_DIR) -f V$(VCS_TOP).mk
@@ -116,7 +120,8 @@ endif
 
 simv: $(VCS_TARGET)
 
-RUN_OPTS := +workload=$(RUN_BIN)
+RUN_BIN_DIR ?= $(ABS_WORK_DIR)/ready-to-run/
+RUN_OPTS := +workload=$(RUN_BIN_DIR)/$(RUN_BIN)
 
 ifeq ($(TRACE),1)
 ifeq ($(CONSIDER_FSDB),1)
@@ -134,7 +139,8 @@ ifeq ($(NO_DIFF),1)
 RUN_OPTS += +no-diff
 endif
 
-RUN_OPTS += -assert finish_maxfail=30 -assert global_finish_maxfail=10000
+RUN_OPTS += -no_save -assert finish_maxfail=30 -assert global_finish_maxfail=10000
+RUN_OPTS += -fgp=num_threads:4,num_fsdb_threads:4
 
 simv-run:
 	$(shell if [ ! -e $(VCS_RUN_DIR) ]; then mkdir -p $(VCS_RUN_DIR); fi)
@@ -142,7 +148,7 @@ simv-run:
 	$(shell if [ -e $(VCS_RUN_DIR)/simv ]; then rm -f $(VCS_RUN_DIR)/simv; fi)
 	$(shell if [ -e $(VCS_RUN_DIR)/simv.daidir ]; then rm -rf $(VCS_RUN_DIR)/simv.daidir; fi)
 	ln -s $(VCS_TARGET) $(VCS_RUN_DIR)/simv
-	ln -s $(BUILD_DIR)/simv.daidir $(VCS_RUN_DIR)/simv.daidir
+	ln -s $(VCS_DIR)/comp/simv.daidir $(VCS_RUN_DIR)/simv.daidir
 	cd $(VCS_RUN_DIR) && (./simv $(RUN_OPTS) 2> assert.log | tee sim.log)
 
 vcs-clean:
