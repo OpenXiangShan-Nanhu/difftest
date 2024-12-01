@@ -17,6 +17,18 @@
 EMU          = $(BUILD_DIR)/emu
 EMU_TOP      = SimTop
 
+EMU_SIM_DIR    = $(SIM_DIR)/emu
+
+ifeq ($(SIMDIR),1)
+	EMU = $(SIM_DIR)/emu/comp/emu
+	EMU_MK = $(SIM_DIR)/emu/comp/V$(EMU_TOP).mk
+	EMU_DIR = $(SIM_DIR)/emu/comp
+else
+	EMU = $(BUILD_DIR)/emu
+	EMU_MK = $(BUILD_DIR)/emu-compile/V$(EMU_TOP).mk
+	EMU_DIR = $(BUILD_DIR)/emu-compile
+endif
+
 EMU_CSRC_DIR   = $(abspath ./src/test/csrc/verilator)
 EMU_CONFIG_DIR = $(abspath ./config)
 
@@ -118,8 +130,6 @@ VERILATOR_FLAGS =                   \
   -o $(abspath $(EMU))              \
   $(VEXTRA_FLAGS)
 
-EMU_DIR = $(BUILD_DIR)/emu-compile
-EMU_MK  = $(EMU_DIR)/V$(EMU_TOP).mk
 EMU_DEPS  := $(SIM_VSRC) $(EMU_CXXFILES)
 EMU_HEADERS := $(shell find $(EMU_CSRC_DIR) -name "*.h")     \
                $(shell find $(SIM_CSRC_DIR) -name "*.h")     \
