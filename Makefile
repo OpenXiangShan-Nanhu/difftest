@@ -24,6 +24,7 @@ NUM_CORES  ?= 1
 MFC 	   ?= 1
 
 BUILD_DIR  = $(DESIGN_DIR)/build
+SIM_DIR    = $(DESIGN_DIR)/sim
 
 RTL_DIR = $(BUILD_DIR)/rtl
 RTL_SUFFIX ?= sv
