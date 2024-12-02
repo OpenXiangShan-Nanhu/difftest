@@ -15,17 +15,13 @@
 ***************************************************************************************/
 
 #include "device.h"
-#ifndef CONFIG_NO_DIFFTEST
-#include "difftest.h"
-#endif // CONFIG_NO_DIFFTEST
 #include "flash.h"
 #ifndef CONFIG_NO_DIFFTEST
+#include "difftest.h"
 #include "goldenmem.h"
-#endif // CONFIG_NO_DIFFTEST
-#include "ram.h"
-#ifndef CONFIG_NO_DIFFTEST
 #include "refproxy.h"
 #endif // CONFIG_NO_DIFFTEST
+#include "ram.h"
 #include "svdpi.h"
 #include <common.h>
 #include <locale.h>
@@ -112,10 +108,12 @@ extern "C" uint64_t get_stuck_limit() {
 #ifndef CONFIG_NO_DIFFTEST
 extern const char *difftest_ref_so;
 extern "C" void set_diff_ref_so(char *s) {
+#ifndef CONFIG_NO_DIFFTEST
   printf("diff-test ref so:%s\n", s);
   char *buf = (char *)malloc(256);
   strcpy(buf, s);
   difftest_ref_so = buf;
+#endif
 }
 #else
 extern "C" void set_diff_ref_so(char *s) {
@@ -185,17 +183,14 @@ extern "C" uint8_t simv_init() {
   }
   init_flash(flash_bin_file);
 
-#ifndef CONFIG_NO_DIFFTEST
-  difftest_init();
-#endif // CONFIG_NO_DIFFTEST
+
 
   init_device();
 
 #ifndef CONFIG_NO_DIFFTEST
-  if (enable_difftest) {
-    init_goldenmem();
-    init_nemuproxy(ram_size);
-  }
+  difftest_init();
+  init_goldenmem();
+  init_nemuproxy(DEFAULT_EMU_RAM_SIZE);
 #endif // CONFIG_NO_DIFFTEST
 
   return 0;
@@ -206,6 +201,46 @@ void output_cpi_to_file() {
   FILE *cpi_file = fopen(OUTPUT_CPI_TO_FILE, "w+");
   printf("OUTPUT CPI to %s\n", OUTPUT_CPI_TO_FILE);
   for (size_t i = 0; i < NUM_CORES; i++) {
+    fprintf(d2q_fifo, "%d,%.6lf\n", i, core_end_info.core_cpi[i]);
+  }
+  fclose(d2q_fifo);
+  return 0;
+}
+#endif
+
+extern "C" uint8_t simv_step() {
+  if (assert_count > 0) {
+    return SIMV_FAIL;
+  }
+
+#ifndef CONFIG_NO_DIFFTEST
+  if (enable_difftest) {
+    if (difftest_step())
+      return SIMV_FAIL;
+  } else {
+    difftest_set_dut();
+  }
+
+#ifndef CONFIG_NO_DIFFTEST
+  if (difftest_state() != -1) {
+    int trapCode = difftest_state();
+    for (int i = 0; i < NUM_CORES; i++) {
+      printf("Core %d: ", i);
+      uint64_t pc = difftest[i]->get_trap_event()->pc;
+      switch (trapCode) {
+        case 0: eprintf(ANSI_COLOR_GREEN "HIT GOOD TRAP at pc = 0x%" PRIx64 "\n" ANSI_COLOR_RESET, pc); break;
+        default: eprintf(ANSI_COLOR_RED "Unknown trap code: %d\n" ANSI_COLOR_RESET, trapCode);
+      }
+      difftest[i]->display_stats();
+    }
+    if (trapCode == 0)
+      return SIMV_DONE;
+    else
+      return SIMV_FAIL;
+  }
+#endif
+
+  for (int i = 0; i < NUM_CORES; i++) {
     auto trap = difftest[i]->get_trap_event();
     auto warmup = difftest[i]->warmup_info;
     uint64_t instrCnt = trap->instrCnt - warmup.instrCnt;
