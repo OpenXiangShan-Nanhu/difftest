@@ -15,17 +15,13 @@
 ***************************************************************************************/
 
 #include "device.h"
-#ifndef CONFIG_NO_DIFFTEST
-#include "difftest.h"
-#endif // CONFIG_NO_DIFFTEST
 #include "flash.h"
 #ifndef CONFIG_NO_DIFFTEST
+#include "difftest.h"
 #include "goldenmem.h"
-#endif // CONFIG_NO_DIFFTEST
-#include "ram.h"
-#ifndef CONFIG_NO_DIFFTEST
 #include "refproxy.h"
 #endif // CONFIG_NO_DIFFTEST
+#include "ram.h"
 #include "svdpi.h"
 #include <common.h>
 #include <locale.h>
@@ -115,10 +111,12 @@ extern "C" uint64_t get_stuck_limit() {
 #ifndef CONFIG_NO_DIFFTEST
 extern const char *difftest_ref_so;
 extern "C" void set_diff_ref_so(char *s) {
+#ifndef CONFIG_NO_DIFFTEST
   printf("diff-test ref so:%s\n", s);
   char *buf = (char *)malloc(256);
   strcpy(buf, s);
   difftest_ref_so = buf;
+#endif
 }
 #else
 extern "C" void set_diff_ref_so(char *s) {
@@ -198,17 +196,14 @@ extern "C" uint8_t simv_init() {
   }
   init_flash(flash_bin_file);
 
-#ifndef CONFIG_NO_DIFFTEST
-  difftest_init();
-#endif // CONFIG_NO_DIFFTEST
+
 
   init_device();
 
 #ifndef CONFIG_NO_DIFFTEST
-  if (enable_difftest) {
-    init_goldenmem();
-    init_nemuproxy(DEFAULT_EMU_RAM_SIZE);
-  }
+  difftest_init();
+  init_goldenmem();
+  init_nemuproxy(DEFAULT_EMU_RAM_SIZE);
 #endif // CONFIG_NO_DIFFTEST
 
   return 0;
@@ -243,6 +238,7 @@ extern "C" uint8_t simv_step() {
     difftest_set_dut();
   }
 
+#ifndef CONFIG_NO_DIFFTEST
   if (difftest_state() != -1) {
     int trapCode = difftest_state();
     for (int i = 0; i < NUM_CORES; i++) {
@@ -259,6 +255,7 @@ extern "C" uint8_t simv_step() {
     else
       return SIMV_FAIL;
   }
+#endif
 
   for (int i = 0; i < NUM_CORES; i++) {
     auto trap = difftest[i]->get_trap_event();
