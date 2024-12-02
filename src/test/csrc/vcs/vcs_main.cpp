@@ -16,12 +16,14 @@
 
 #include <common.h>
 #include <locale.h>
-#include "difftest.h"
 #include "device.h"
-#include "goldenmem.h"
 #include "ram.h"
 #include "flash.h"
+#ifndef CONFIG_NO_DIFFTEST
+#include "difftest.h"
+#include "goldenmem.h"
 #include "refproxy.h"
+#endif
 
 static bool has_reset = false;
 static char bin_file[256] = "ram.bin";
@@ -40,11 +42,13 @@ extern "C" void set_flash_bin(char *s) {
 }
 
 extern "C" void set_diff_ref_so(char *s) {
+#ifndef CONFIG_NO_DIFFTEST
   printf("diff-test ref so:%s\n", s);
   extern const char *difftest_ref_so;
   char* buf = (char *)malloc(256);
   strcpy(buf, s);
   difftest_ref_so = buf;
+#endif
 }
 
 extern "C" void set_no_diff() {
@@ -62,13 +66,12 @@ extern "C" void simv_init() {
 #endif
 
   init_flash(flash_bin_file);
-
-  difftest_init();
   init_device();
-  if (enable_difftest) {
-    init_goldenmem();
-    init_nemuproxy(DEFAULT_EMU_RAM_SIZE);
-  }
+#ifndef CONFIG_NO_DIFFTEST
+  difftest_init();
+  init_goldenmem();
+  init_nemuproxy(DEFAULT_EMU_RAM_SIZE);
+#endif
 }
 
 extern "C" int simv_step() {
@@ -76,6 +79,7 @@ extern "C" int simv_step() {
     return 1;
   }
 
+#ifndef CONFIG_NO_DIFFTEST
   if (difftest_state() != -1) {
     int trapCode = difftest_state();
     switch (trapCode) {
@@ -89,12 +93,13 @@ extern "C" int simv_step() {
     }
     return trapCode + 1;
   }
+#endif
 
-  if (enable_difftest) {
-    return difftest_step();
-  } else {
-    return 0;
-  }
+#ifndef CONFIG_NO_DIFFTEST
+  return difftest_step();
+#else
+  return 0;
+#endif
 }
 
 #ifdef DIFFTEST_DEFERRED_RESULT
