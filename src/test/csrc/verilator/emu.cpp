@@ -694,8 +694,14 @@ inline void Emulator::single_cycle() {
 
 #ifdef VERILATOR
   if (dut_ptr->difftest_uart_out_valid) {
-    printf("%c", dut_ptr->difftest_uart_out_ch);
-    fflush(stdout);
+    if((dut_ptr->difftest_uart_out_ch & 0x80) == 0) {
+      printf("%c", dut_ptr->difftest_uart_out_ch);
+      fflush(stdout);
+    } else {
+      printf("Simulation is ended by uart printing\n");
+      fflush(stdout);
+      trapCode = STATE_GOODTRAP;;
+    }
   }
   if (dut_ptr->difftest_uart_in_valid) {
     extern uint8_t uart_getc();
