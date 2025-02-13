@@ -104,8 +104,7 @@ public:
   f(update_config, update_dynamic_config, void, void*)                        \
   f(uarchstatus_sync, difftest_uarchstatus_sync, void, void*)                 \
   f(store_commit, difftest_store_commit, int, uint64_t*, uint64_t*, uint8_t*) \
-  f(raise_intr, difftest_raise_intr, void, uint64_t)                          \
-  f(load_flash_bin, difftest_load_flash, void, void*, size_t)
+  f(raise_intr, difftest_raise_intr, void, uint64_t)
 
 #ifdef ENABLE_RUNHEAD
 #define REF_RUN_AHEAD(f)                                                      \
@@ -136,6 +135,8 @@ public:
   REF_DEBUG_MODE(f)
 
 #define REF_OPTIONAL(f)                                                                                     \
+  f(load_flash_bin, difftest_load_flash, void, const char*, size_t)                                         \
+  f(load_flash_bin_v2, difftest_load_flash_v2, void, const uint8_t*, size_t)                                \
   f(ref_status, difftest_status, int, )                                                                     \
   f(ref_close, difftest_close, void, )                                                                      \
   f(ref_set_ramsize, difftest_set_ramsize, void, size_t)                                                    \
@@ -151,7 +152,8 @@ public:
   f(raise_mhpmevent_overflow, difftest_raise_mhpmevent_overflow, void, uint64_t)                            \
   f(ref_raise_critical_error, difftest_raise_critical_error, bool)                                          \
   f(ref_get_store_event_other_info, difftest_get_store_event_other_info, void, void*)                       \
-  f(ref_aia_xtopei, difftest_aia_xtopei, void, void*)
+  f(ref_sync_aia, difftest_sync_aia, void, void*)                                                           \
+  f(ref_sync_custom_mflushpwr, difftest_sync_custom_mflushpwr, void, bool)
 #define RefFunc(func, ret, ...) ret func(__VA_ARGS__)
 #define DeclRefFunc(this_func, dummy, ret, ...) RefFunc((*this_func), ret, __VA_ARGS__);
 /* clang-format on */
@@ -246,7 +248,7 @@ public:
     if (raise_nmi_intr) {
       raise_nmi_intr(hasNMI);
     } else {
-      printf("No NMI interrupt is triggered.\n");
+      Info("No NMI interrupt is triggered.\n");
     }
   }
 
@@ -254,7 +256,7 @@ public:
     if (ref_virtual_interrupt_is_hvictl_inject) {
       ref_virtual_interrupt_is_hvictl_inject(virtualInterruptIsHvictlInject);
     } else {
-      printf("Virtual interrupt without hvictl register injection.\n");
+      Info("Virtual interrupt without hvictl register injection.\n");
     }
   }
 
@@ -274,11 +276,19 @@ public:
     return ref_raise_critical_error ? ref_raise_critical_error() : false;
   }
 
-  inline void aia_xtopei(struct AIAXtopei &xtopei) {
-    if (ref_aia_xtopei) {
-      ref_aia_xtopei(&xtopei);
+  inline void sync_aia(struct FromAIA &src) {
+    if (ref_sync_aia) {
+      ref_sync_aia(&src);
     } else {
-      printf("Does not support the out-of-core part of AIA.\n");
+      Info("Does not support the out-of-core part of AIA.\n");
+    }
+  }
+
+  inline void sync_custom_mflushpwr(bool l2FlushDone) {
+    if (ref_sync_custom_mflushpwr) {
+      ref_sync_custom_mflushpwr(l2FlushDone);
+    } else {
+      printf("Does not support sync custom CSR mflushpwr.\n");
     }
   }
 
@@ -308,11 +318,13 @@ public:
     }
   }
 
+  void flash_init(const uint8_t *flash_base, size_t size, const char *flash_bin);
+
   inline void get_store_event_other_info(void *info) {
     if (ref_get_store_event_other_info) {
       ref_get_store_event_other_info(info);
     } else {
-      printf(
+      Info(
           "This version of 'REF' does not support the 'PC' value of store commit event. Please use a newer version of "
           "'REF'.\n");
     }
@@ -407,13 +419,16 @@ struct NonRegInterruptPending {
   bool platformIRPStip;
   bool platformIRPVseip;
   bool platformIRPVstip;
+  bool fromAIAMeip;
+  bool fromAIASeip;
   bool localCounterOverflowInterruptReq;
 };
 
-struct AIAXtopei {
+struct FromAIA {
   uint64_t mtopei;
   uint64_t stopei;
   uint64_t vstopei;
+  uint64_t hgeip;
 };
 
 extern const char *difftest_ref_so;

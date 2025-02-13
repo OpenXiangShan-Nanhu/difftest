@@ -57,7 +57,8 @@ class DifftestTop extends Module {
   val difftest_non_reg_interrupt_pending_event = DifftestModule(new DiffNonRegInterruptPendingEvent, dontCare = true)
   val difftest_mhpmevent_overflow_event = DifftestModule(new DiffMhpmeventOverflowEvent, dontCare = true)
   val difftest_critical_error_event = DifftestModule(new DiffCriticalErrorEvent, dontCare = true)
-  val difftest_aia_xtopei_event = DifftestModule(new DiffAIAXtopeiEvent, dontCare = true)
+  val difftest_sync_aia_event = DifftestModule(new DiffSyncAIAEvent, dontCare = true)
+  val difftest_sync_custom_mflushpwr_event = DifftestModule(new DiffSyncCustomMflushpwrEvent, dontCare = true)
 
   DifftestModule.finish("demo")
 }
@@ -68,7 +69,8 @@ class SimTop(profileName: String, numCoresOption: Option[Int]) extends Module {
   val numCores = numCoresOption.getOrElse(profile.numCores)
   val bundles = (0 until numCores).flatMap(coreid =>
     profile.bundles.zipWithIndex.map { case (p, i) =>
-      DifftestModule(p.toBundle, true, p.delay).suggestName(s"gateway_${coreid}_$i")
+      val io = DifftestModule(p.toBundle, true, p.delay).suggestName(s"gateway_${coreid}_$i")
+      dontTouch(io)
     }
   )
   DifftestModule.generateSvhInterface(bundles, numCores)

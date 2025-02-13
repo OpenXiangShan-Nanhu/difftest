@@ -314,6 +314,8 @@ class NonRegInterruptPendingEvent extends DifftestBaseBundle with HasValid {
   val platformIRPStip = Bool()
   val platformIRPVseip = Bool()
   val platformIRPVstip = Bool()
+  val fromAIAMeip = Bool()
+  val fromAIASeip = Bool()
   val localCounterOverflowInterruptReq = Bool()
 }
 
@@ -331,8 +333,13 @@ class CriticalErrorEvent extends DifftestBaseBundle with HasValid {
   val criticalError = Bool()
 }
 
-class AIAXtopeiEvent extends DifftestBaseBundle with HasValid {
+class AIAEvent extends DifftestBaseBundle with HasValid {
   val mtopei = UInt(64.W)
   val stopei = UInt(64.W)
   val vstopei = UInt(64.W)
+  val hgeip = UInt(64.W)
+}
+
+class SyncCustomMflushpwrEvent extends DifftestBaseBundle with HasValid {
+  val l2FlushDone = Bool()
 }

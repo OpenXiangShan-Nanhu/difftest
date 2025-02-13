@@ -109,15 +109,15 @@ public:
 
 protected:
   void display_custom() {
-    printf(" wen %d dst %02d data %016lx idx %03x", wen, dest, data, robidx);
+    Info(" wen %d dst %02d data %016lx idx %03x", wen, dest, data, robidx);
     if (isLoad) {
-      printf(" (%02x)", lqidx);
+      Info(" (%02x)", lqidx);
     }
     if (isStore) {
-      printf(" (%02x)", sqidx);
+      Info(" (%02x)", sqidx);
     }
     if (tag) {
-      printf(" (%c)", tag);
+      Info(" (%c)", tag);
     }
   }
 
@@ -142,7 +142,7 @@ public:
 
 protected:
   void display_custom() {
-    printf(" cause %016lx", cause);
+    Info(" cause %016lx", cause);
   }
 };
 
@@ -337,7 +337,7 @@ protected:
   void store_event_record();
 #endif
 
-#ifdef CONFIG_DIFFTEST_REFILLEVENT
+#ifdef CONFIG_DIFFTEST_CMOINVALEVENT
   std::unordered_set<uint64_t> cmo_inval_event_set;
   void cmo_inval_event_record();
 #endif
@@ -431,8 +431,11 @@ protected:
 #ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
   void do_raise_critical_error();
 #endif
-#ifdef CONFIG_DIFFTEST_AIAXTOPEIEVENT
-  void do_aia_xtopei();
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+  void do_sync_aia();
+#endif
+#ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
+  void do_sync_custom_mflushpwr();
 #endif
 #ifdef CONFIG_DIFFTEST_REPLAY
   struct {
