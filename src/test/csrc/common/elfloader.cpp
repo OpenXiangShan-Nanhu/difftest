@@ -109,6 +109,8 @@ long readFromElf(void *ptr, const char *file_name, long buf_size) {
         "It is likely that execution leads to unexpected behaviour.\n");
   }
 
+  size_t total_len = 0;
+  size_t total_sections = 0;
   for (auto section: elf_file.sections) {
     auto len = section.data_len + section.zero_len;
     auto offset = section.data_dst - base_addr;
@@ -117,12 +119,15 @@ long readFromElf(void *ptr, const char *file_name, long buf_size) {
       printf("The size (%ld bytes) of the section at address 0x%lx is larger than buf_size!\n", len, section.data_dst);
       return -1;
     }
-
-    printf("Loading %ld bytes at address 0x%lx at offset 0x%lx\n", len, section.data_dst, offset);
+    total_len += len; 
+    total_sections++;
+    // printf("Loading %ld bytes at address 0x%lx at offset 0x%lx\n", len, section.data_dst, offset);
     std::memset((uint8_t *)ptr + offset, 0, len);
     std::memcpy((uint8_t *)ptr + offset, section.data_src, section.data_len);
     len_written += len;
   }
+  printf("Loaded %ld bytes across %ld sections.\n", total_len, total_sections);
+  
   // Since we are unpacking the sections, the total amount of bytes is the last
   // section offset plus its size.
   auto last_section = elf_file.sections.back();
