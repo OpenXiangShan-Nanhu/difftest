@@ -21,7 +21,7 @@ import chisel3.reflect.DataMirror
 import chisel3.util._
 import difftest._
 import difftest.DifftestModule.createCppExtModule
-import difftest.batch.{BatchInfo, BatchIO}
+import difftest.batch.{BatchIO, BatchInfo}
 import difftest.common.FileControl
 import difftest.delta.Delta
 import difftest.gateway.{GatewayConfig, GatewayResult, GatewaySinkControl}
@@ -173,7 +173,7 @@ abstract class DPICBase(config: GatewayConfig) extends ExtModule with HasExtModu
 class DPIC[T <: DifftestBundle](gen: T, config: GatewayConfig) extends DPICBase(config) with DifftestModule[T] {
   val io = IO(Input(gen))
 
-  override def desiredName: String = gen.desiredModuleName.replace("Difftest", "DiffExt")
+  override def desiredName: String = s"${GlobalData.prefix}${gen.desiredModuleName}"
   override def modPorts: Seq[Seq[(String, Data)]] = {
     super.modPorts ++ io.elementsInSeqUInt.map { case (name, dataSeq) =>
       val prefixName = s"io_$name"
