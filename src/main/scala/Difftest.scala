@@ -27,6 +27,10 @@ import difftest.util.Profile
 import scala.annotation.tailrec
 import scala.collection.mutable.ListBuffer
 
+object GlobalData {
+  var prefix = ""
+}
+
 trait DifftestWithCoreid {
   val coreid = UInt(8.W)
 }
