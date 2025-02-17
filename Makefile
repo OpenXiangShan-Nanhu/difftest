@@ -91,7 +91,7 @@ endif
 endif
 
 # ChiselDB
-WITH_CHISELDB ?= 1
+WITH_CHISELDB ?= 0
 ifeq ($(WITH_CHISELDB), 1)
 SIM_CXXFILES += $(BUILD_DIR)/chisel_db.cpp
 SIM_CXXFLAGS += -I$(BUILD_DIR) -DENABLE_CHISEL_DB
@@ -99,7 +99,7 @@ SIM_LDFLAGS  += -lsqlite3
 endif
 
 # ConstantIn
-WITH_CONSTANTIN ?= 1
+WITH_CONSTANTIN ?= 0
 ifeq ($(WITH_CONSTANTIN), 1)
 SIM_CXXFILES += $(BUILD_DIR)/constantin.cpp
 SIM_CXXFLAGS += -I$(BUILD_DIR) -DENABLE_CONSTANTIN
