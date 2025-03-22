@@ -87,11 +87,20 @@ end
 
 `ifndef RESET_COUNTER
 initial begin
-  #100 reset = 0;
+  reset = 0;
+  #2;
+  reset = 1;
+  #100;
+  reset = 0;
 end
 `else
 reg [7:0] reset_counter;
-initial reset_counter = 0;
+
+initial begin
+  reset = 1;
+  reset_counter = 0;
+end
+
 always @(posedge clock) begin
 `ifdef ENABLE_WORKLOAD_SWITCH
   if (workload_switch) begin
@@ -111,7 +120,11 @@ end
 `endif // RESET_COUNTER
 
 `ifndef WIRE_CLK
-always #1 clock <= ~clock;
+  initial begin
+    clock = 0;
+    #10;
+    forever #1 clock = ~clock;
+  end
 `endif // WIRE_CLK
 
 SimTop sim(
