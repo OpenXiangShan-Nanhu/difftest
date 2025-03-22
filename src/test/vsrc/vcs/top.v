@@ -30,6 +30,7 @@ wire        clock;
 reg         clock;
 `endif // WIRE_CLK
 reg         reset;
+
 `ifdef ENABLE_WORKLOAD_SWITCH
 wire        workload_switch;
 `endif // ENABLE_WORKLOAD_SWITCH
@@ -44,6 +45,8 @@ wire        difftest_uart_in_valid;
 wire [ 7:0] difftest_uart_in_ch;
 wire [63:0] difftest_exit;
 wire [`CONFIG_DIFFTEST_STEPWIDTH - 1:0] difftest_step;
+wire        io_simFinal;
+
 
 string wave_type;
 
@@ -124,6 +127,9 @@ SimTop sim(
   .difftest_uart_in_valid(difftest_uart_in_valid),
   .difftest_uart_in_ch(difftest_uart_in_ch),
   .difftest_exit(difftest_exit),
+`ifdef DUT_CLEAN
+  .io_simFinal(io_simFinal),
+`endif
   .difftest_step(difftest_step)
 );
 
@@ -143,7 +149,8 @@ DifftestEndpoint difftest(
   .difftest_uart_in_valid(difftest_uart_in_valid),
   .difftest_uart_in_ch(difftest_uart_in_ch),
   .difftest_exit(difftest_exit),
-  .difftest_step(difftest_step)
+  .difftest_step(difftest_step),
+  .io_simFinal(io_simFinal)
 );
 
 endmodule

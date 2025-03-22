@@ -133,9 +133,7 @@ private:
   inline void save_coverage(time_t t);
 #endif
   void fork_child_init();
-  inline bool is_fork_child() {
-    return lightsss->is_child();
-  }
+  inline bool is_fork_child() { return args.enable_fork? lightsss->is_child(): false; }
 
 public:
   Emulator(int argc, const char *argv[]);
