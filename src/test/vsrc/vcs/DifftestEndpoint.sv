@@ -35,7 +35,8 @@ module DifftestEndpoint(
   output wire        difftest_uart_in_valid,
   output wire [ 7:0] difftest_uart_in_ch,
   input  wire [63:0] difftest_exit,
-  input  wire [`CONFIG_DIFFTEST_STEPWIDTH - 1:0] difftest_step
+  input  wire [`CONFIG_DIFFTEST_STEPWIDTH - 1:0] difftest_step,
+  output reg        io_simFinal
 );
 
 `ifndef TB_NO_DPIC
@@ -87,6 +88,7 @@ reg [63:0] warmup_instr;
 reg [63:0] stuck_limit;
 
 initial begin
+  io_simFinal = 1'b0;
   // log begin
   if ($test$plusargs("b")) begin
     $value$plusargs("b=%d", difftest_logCtrl_begin_r);
@@ -196,7 +198,7 @@ always @(posedge clock) begin
     // max cycles
     if (max_cycles > 0 && n_cycles >= max_cycles) begin
       $display("EXCEEDED MAX CYCLE: %d", max_cycles);
-      $finish();
+      io_simFinal <= 1'b1;
     end
 
     // stuck check
@@ -219,7 +221,7 @@ always @(posedge clock) begin
     // exit signal: all 1's for normal exit; others are error
     if (difftest_exit == 64'hffff_ffff_ffff_ffff) begin
       $display("The simulation exits normally");
-      $finish();
+      io_simFinal <= 1'b1;
     end
     else if (difftest_exit != 0) begin
       $display("The simulation aborts: error code 0x%x", difftest_exit);
@@ -245,7 +247,7 @@ always @(posedge clock) begin
       if (simv_init()) begin
         if (workload_list_completed()) begin
           $display("DIFFTEST WORKLOAD LIST DONE at cycle %d", n_cycles);
-          $finish();
+          io_simFinal <= 1'b1;
         end
         else begin
           $display("DIFFTEST INIT FAILED");
@@ -334,7 +336,7 @@ always @(posedge clock) begin
     else if (simv_result == `SIMV_DONE) begin
       $display("DIFFTEST WORKLOAD DONE at cycle %d", n_cycles);
 `ifndef ENABLE_WORKLOAD_SWITCH
-      $finish();
+      io_simFinal <= 1'b1;
 `endif // ENABLE_WORKLOAD_SWITCH
     end
   end
@@ -354,10 +356,18 @@ assign workload_switch = simv_result == `SIMV_DONE;
 assign difftest_uart_in_ch = 8'hff;
 always @(posedge clock) begin
   if (!reset && difftest_uart_out_valid) begin
-    $fwrite(32'h8000_0001, "%c", difftest_uart_out_ch);
-    $fflush();
+    if(difftest_uart_out_ch[7] == 0) begin
+      $fwrite(32'h8000_0001, "%c", difftest_uart_out_ch);
+      $fflush();
+    end
+    else begin
+      $display("\033[32mHIT GOOD TRAP!\033[0m");
+      io_simFinal <= 1'b1;
+    end
   end
 end
+
+always @(posedge clock) if(io_simFinal) $finish;
 
 /*
  * perf/log ctrl
