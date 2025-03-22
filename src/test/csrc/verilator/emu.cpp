@@ -379,6 +379,7 @@ Emulator::Emulator(int argc, const char *argv[])
   }
   // init flash
   init_flash(args.flash_bin);
+  dut_ptr->io_simFinal = 0;
 
 #if VM_TRACE == 1
   if (args.enable_waveform) {
@@ -536,7 +537,7 @@ Emulator::~Emulator() {
     runahead_cleanup(); // remove all checkpoints
   }
 #endif // ENABLE_RUNAHEAD
-
+  bool im_main = !is_fork_child();
   if (args.enable_fork && !is_fork_child()) {
     bool need_wakeup = trapCode != STATE_GOODTRAP && trapCode != STATE_LIMIT_EXCEEDED && trapCode != STATE_SIG;
     if (need_wakeup) {
@@ -552,6 +553,14 @@ Emulator::~Emulator() {
 #ifndef CONFIG_NO_DIFFTEST
   stats.update(difftest[0]->dut);
 #endif // CONFIG_NO_DIFFTEST
+  bool do_clean_job = (args.enable_fork && im_main) || !args.enable_fork;
+  if (do_clean_job) {
+    dut_ptr->io_simFinal = 1;
+    dut_ptr->clock = 1;
+    dut_ptr->eval();
+    dut_ptr->clock = 0;
+    dut_ptr->eval();
+  }
 
   simMemory->display_stats();
   delete simMemory;
