@@ -588,6 +588,14 @@ inline void Emulator::reset_ncycles(size_t cycles) {
   if (args.trace_name && args.trace_is_read) {
     return;
   }
+
+  // give reset a posedge
+  dut_ptr->reset = 0;
+  dut_ptr->clock = 0;
+  dut_ptr->eval();
+  dut_ptr->reset = 1;
+  dut_ptr->eval();
+
   for (int i = 0; i < cycles; i++) {
     dut_ptr->reset = 1;
 #ifdef COVERAGE_PORT_RESET
