@@ -374,6 +374,9 @@ Emulator::Emulator(int argc, const char *argv[])
   }
   // init flash
   init_flash(args.flash_bin);
+#ifdef DUT_CLEAN
+  dut_ptr->io_simFinal = 0;
+#endif
 
   if (args.enable_waveform) {
     uint64_t waveform_clock = args.enable_waveform_full ? 2 * args.log_begin : args.log_begin;
@@ -522,7 +525,7 @@ Emulator::~Emulator() {
     runahead_cleanup(); // remove all checkpoints
   }
 #endif // ENABLE_RUNAHEAD
-
+  bool im_main = !is_fork_child();
   if (args.enable_fork && !is_fork_child()) {
     bool need_wakeup = trapCode != STATE_GOODTRAP && trapCode != STATE_LIMIT_EXCEEDED && trapCode != STATE_SIG;
     if (need_wakeup) {
@@ -540,6 +543,17 @@ Emulator::~Emulator() {
 #ifndef CONFIG_NO_DIFFTEST
   stats.update(difftest[0]->dut);
 #endif // CONFIG_NO_DIFFTEST
+
+#ifdef DUT_CLEAN
+  bool do_clean_job = (args.enable_fork && im_main) || !args.enable_fork;
+  if (do_clean_job) {
+    dut_ptr->io_simFinal = 1;
+    dut_ptr->clock = 1;
+    dut_ptr->eval();
+    dut_ptr->clock = 0;
+    dut_ptr->eval();
+  }
+#endif
 
   simMemory->display_stats();
   delete simMemory;
@@ -642,6 +656,29 @@ inline void Emulator::single_cycle() {
 #ifdef WITH_DRAMSIM3
   dramsim3_step();
 #endif
+
+#ifdef VERILATOR
+  if (dut_ptr->difftest_uart_out_valid) {
+    if((dut_ptr->difftest_uart_out_ch & 0x80) == 0) {
+      printf("%c", dut_ptr->difftest_uart_out_ch);
+      fflush(stdout);
+    } else {
+      printf("Simulation is ended by uart printing\n");
+      fflush(stdout);
+      trapCode = STATE_GOODTRAP;;
+    }
+  }
+  if (dut_ptr->difftest_uart_in_valid) {
+    extern uint8_t uart_getc();
+    dut_ptr->difftest_uart_in_ch = uart_getc();
+  }
+
+  dut_ptr->clock = 0;
+#ifdef COVERAGE_PORT_CLOCK
+  dut_ptr->coverage_clock = dut_ptr->clock;
+#endif // COVERAGE_PORT_CLOCK
+  dut_ptr->eval();
+#endif // VERILATOR
 
 #ifdef GSIM
   dut_ptr->step();
