@@ -51,11 +51,6 @@ wire        io_simFinal;
 string wave_type;
 
 initial begin
-`ifndef WIRE_CLK
-  clock = 0;
-`endif // WIRE_CLK
-  reset = 1;
-
 `ifdef VCS
   // enable waveform
   if ($test$plusargs("dump-wave")) begin
@@ -123,11 +118,11 @@ end
 `endif // RESET_COUNTER
 
 `ifndef WIRE_CLK
-  initial begin
-    clock = 0;
-    #10;
-    forever #1 clock = ~clock;
-  end
+initial begin
+  clock = 0;
+  #10;
+  forever #1 clock = ~clock;
+end
 `endif // WIRE_CLK
 
 SimTop sim(
