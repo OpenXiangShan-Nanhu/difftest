@@ -67,7 +67,6 @@ initial begin
 `ifdef CONSIDER_FSDB
     else if (wave_type == "fsdb") begin
       $fsdbDumpfile("simv.fsdb");
-      $fsdbDumpvars(0,"+mda");
     end
 `endif
     else begin
