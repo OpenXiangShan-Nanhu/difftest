@@ -66,7 +66,11 @@ initial begin
     end
 `ifdef CONSIDER_FSDB
     else if (wave_type == "fsdb") begin
-      $fsdbDumpfile("simv.fsdb");
+      $display("Dumping FSDB Waveform for DEBUG is active !!!");
+      $fsdbAutoSwitchDumpfile(10000,"tb_top.fsdb",60);
+      $fsdbDumpfile("tb_top.fsdb");
+      if ($test$plusargs("mda")) $fsdbDumpMDA();
+      $fsdbDumpvars(0,tb_top.sim);
     end
 `endif
     else begin
