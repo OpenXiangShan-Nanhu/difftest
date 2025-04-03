@@ -38,7 +38,7 @@ private trait HasMemInitializer { this: ExtModule =>
       |    end
       |    foreach (`MEM_TARGET[i]) begin
       |      if (byte_read == 0) break;
-      |      for (integer j = 0; j < 8; j++) begin
+      |      for (integer j = 0; j < 32; j++) begin
       |        byte_read = $fread(data, memory_image);
       |        if (byte_read == 0) break;
       |        n_read += 1;
@@ -67,7 +67,7 @@ private trait HasReadPort { this: ExtModule =>
   val r = IO(new Bundle {
     val enable = Input(Bool())
     val index = Input(UInt(64.W))
-    val data = Output(UInt(64.W))
+    val data = Output(UInt(256.W))
   })
 
   val r_dpic =
@@ -81,7 +81,7 @@ private trait HasReadPort { this: ExtModule =>
     """
       |input             r_enable,
       |input      [63:0] r_index,
-      |output reg [63:0] r_data,
+      |output reg [255:0] r_data,
       |""".stripMargin
 
   val r_func =
@@ -108,8 +108,8 @@ private trait HasWritePort { this: ExtModule =>
   val w = IO(new Bundle {
     val enable = Input(Bool())
     val index = Input(UInt(64.W))
-    val data = Input(UInt(64.W))
-    val mask = Input(UInt(64.W))
+    val data = Input(UInt(256.W))
+    val mask = Input(UInt(256.W))
   })
 
   val w_dpic =
@@ -128,8 +128,8 @@ private trait HasWritePort { this: ExtModule =>
     """
       |input         w_enable,
       |input  [63:0] w_index,
-      |input  [63:0] w_data,
-      |input  [63:0] w_mask,
+      |input  [255:0] w_data,
+      |input  [255:0] w_mask,
       |""".stripMargin
 
   val w_func =
@@ -161,9 +161,9 @@ private class MemRWHelper extends MemHelper with HasReadPort with HasWritePort {
 
   def mem_decl: String =
     """
-      |// 1536MB memory
-      |`define RAM_SIZE (1536 * 1024 * 1024)
-      |reg [63:0] memory [0 : `RAM_SIZE / 8 - 1];
+      |// 8096MB memory
+      |`define RAM_SIZE (512 * 1024 * 1024)
+      |reg [255:0] memory [0 : `RAM_SIZE - 1];
       |""".stripMargin
 
   def mem_target: String = "memory"
@@ -192,20 +192,20 @@ private class MemRWHelper extends MemHelper with HasReadPort with HasWritePort {
 }
 
 abstract class DifftestMem(size: BigInt, lanes: Int, bits: Int) extends Module {
-  require(bits == 8 && lanes % 8 == 0, "supports 64-bits aligned byte access only")
-  protected val n_helper = lanes / 8
+  require(bits == 8 && lanes % 32 == 0, "supports 64-bits aligned byte access only")
+  protected val n_helper = lanes / 32
   private val helper = Seq.fill(n_helper)(Module(new MemRWHelper))
 
   val read = IO(new Bundle {
     val valid = Input(Bool())
     val index = Input(UInt(64.W))
-    val data = Output(Vec(n_helper, UInt(64.W)))
+    val data = Output(Vec(n_helper, UInt(256.W)))
   })
   val write = IO(Input(new Bundle {
     val valid = Bool()
     val index = UInt(64.W)
-    val data = Vec(n_helper, UInt(64.W))
-    val mask = Vec(n_helper, UInt(64.W))
+    val data = Vec(n_helper, UInt(256.W))
+    val mask = Vec(n_helper, UInt(256.W))
   }))
 
   read.data := helper.zipWithIndex.map { case (h, i) =>
