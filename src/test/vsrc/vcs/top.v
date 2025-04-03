@@ -146,4 +146,14 @@ DifftestEndpoint difftest(
   .difftest_step(difftest_step)
 );
 
+
+wire io_valid;
+assign io_valid = sim.l_soc.core_with_l2.core.backend.inner_ctrlBlock.rob.io_commits_commitValid_0;
+
+sim_watchdog sim_watchdog (
+  .clock(clock),
+  .reset(reset),
+  .io_valid(io_valid)
+);
+
 endmodule
