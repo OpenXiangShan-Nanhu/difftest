@@ -1274,8 +1274,13 @@ void Emulator::fork_child_init() {
   tfp = new VerilatedVcdC;
 #endif
   dut_ptr->trace(tfp, 99);
-  time_t now = time(NULL);
-  tfp->open(cycle_wavefile(cycles, now));
+  if (args.wave_path != NULL) {
+    tfp->open(args.wave_path);
+    FORK_PRINTF("dump wave to %s...\n", args.wave_path);
+  } else {
+    time_t now = time(NULL);
+    tfp->open(cycle_wavefile(cycles, now)); // Open the dump file
+  }
   // override output range config, force dump wave
   force_dump_wave = true;
   args.enable_waveform = true;
