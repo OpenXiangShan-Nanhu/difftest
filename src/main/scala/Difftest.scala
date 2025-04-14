@@ -545,7 +545,7 @@ object DifftestModule {
 
   def get_current_interfaces(): Seq[(DifftestBundle, Int)] = interfaces.toSeq
 
-  def finish(cpu: String, createTopIO: Boolean): Option[DifftestTopIO] = {
+  def finish(cpu: String, createTopIO: Boolean, extraMarcos:Seq[String]): Option[DifftestTopIO] = {
     val gateway = Gateway.collect()
 
     generateCppHeader(
@@ -571,7 +571,11 @@ object DifftestModule {
   }
 
   def finish(cpu: String): DifftestTopIO = {
-    finish(cpu, true).get
+    finish(cpu, createTopIO = true, Seq()).get
+  }
+
+  def finish(cpu: String, extraMarcos:Seq[String]): DifftestTopIO = {
+    finish(cpu, createTopIO = true, extraMarcos).get
   }
 
   def createTopIOs(exit: Option[UInt], step: Option[UInt]): DifftestTopIO = {
