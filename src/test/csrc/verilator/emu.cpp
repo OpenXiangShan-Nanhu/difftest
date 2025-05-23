@@ -710,10 +710,6 @@ inline void Emulator::single_cycle() {
     if((dut_ptr->difftest_uart_out_ch & 0x80) == 0) {
       printf("%c", dut_ptr->difftest_uart_out_ch);
       fflush(stdout);
-    } else {
-      printf("Simulation is ended by uart printing\n");
-      fflush(stdout);
-      trapCode = STATE_GOODTRAP;;
     }
   }
   if (dut_ptr->difftest_uart_in_valid) {
@@ -823,6 +819,21 @@ int Emulator::tick() {
   // signals
   if (signal_num != 0) {
     trapCode = STATE_SIG;
+  }
+  if (dut_ptr->difftest_uart_out_valid) {
+    uint8_t chout = dut_ptr->difftest_uart_out_ch;
+    uint8_t end = (chout & 0x80) >> 7;
+    uint8_t code = chout & 0x7f;
+    if(end) {
+      printf("Software killed simulation with code %d\n", code);
+      fflush(stdout);
+      if(code == 0) {
+        trapCode = STATE_GOODTRAP;;
+      } else {
+        trapCode = STATE_ABORT;
+      }
+      return trapCode;
+    }
   }
 
   // exit signal: non-zero exit exits the simulation. exit all 1's indicates good.
