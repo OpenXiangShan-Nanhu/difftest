@@ -30,6 +30,10 @@ VCS_CXXFILES  = $(SIM_CXXFILES) $(shell find $(VCS_CSRC_DIR) -name "*.cpp")
 VCS_CXXFLAGS  = $(SIM_CXXFLAGS) -I$(VCS_CSRC_DIR) -DNUM_CORES=$(NUM_CORES)
 VCS_LDFLAGS   = -Wl,--no-as-needed $(SIM_LDFLAGS) -lpthread -ldl
 
+ifeq ($(DEBUG),1)
+NO_DIFF = 1
+endif
+
 # DiffTest support
 ifneq ($(NO_DIFF),1)
 VCS_FLAGS    += +define+DIFFTEST
@@ -133,6 +137,10 @@ endif
 
 ifneq ($(REF_SO),)
 RUN_OPTS += +diff=$(REF_SO)
+endif
+
+ifeq ($(DEBUG),1)
+RUN_OPTS += +enable-jtag +jtag_rbb_enable=1 +no-diff
 endif
 
 ifeq ($(NO_DIFF),1)
