@@ -18,6 +18,7 @@ package difftest.util
 
 import chisel3._
 import chisel3.util._
+import difftest.DifftestBundle
 
 private class Delayer[T <: Data](gen: T, n_cycles: Int) extends Module {
   val i = IO(Input(chiselTypeOf(gen)))
@@ -30,6 +31,13 @@ private class DelayReg[T <: Data](gen: T, n_cycles: Int) extends Delayer(gen, n_
     r = RegNext(r, 0.U.asTypeOf(gen))
   }
   o := r
+
+  // Direct connection for coreid
+  (i, o) match {
+    case (input: DifftestBundle, output: DifftestBundle) =>
+      output.coreid := input.coreid
+    case _ =>
+  }
 }
 
 private class DelayMem[T <: Data](gen: T, n_cycles: Int) extends Delayer(gen, n_cycles) {
