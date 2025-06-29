@@ -639,6 +639,9 @@ void Difftest::do_first_instr_commit() {
     // If this process is checkpoint wakeuped, simulator's config has already been updated,
     // do not override it.
   }
+  if(has_commit && dut->commit[0].valid && dut->commit[0].pc == FIRST_INST_ADDRESS){
+    proxy->regcpy(dut);
+  }
 }
 
 #if defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_ARCHVECREGSTATE)
