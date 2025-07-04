@@ -86,9 +86,9 @@ end
 `ifndef RESET_COUNTER
 initial begin
   reset = 0;
-  #2;
+  #5;
   reset = 1;
-  #100;
+  #250;
   reset = 0;
 end
 `else
@@ -120,8 +120,8 @@ end
 `ifndef WIRE_CLK
 initial begin
   clock = 0;
-  #10;
-  forever #1 clock = ~clock;
+  #25;
+  forever #2.5 clock = ~clock;
 end
 `endif // WIRE_CLK
 
