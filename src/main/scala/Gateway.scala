@@ -213,6 +213,45 @@ object Gateway {
       exit = None,
     )
   }
+
+  def lntop_collect(instanceSeq: Seq[(DifftestBundle, Int)]): GatewayResult = {
+    val difftest_instances = if(config.needEndpoint) instanceSeq else instanceWithDelay.toSeq
+    println(s"[lntop_collect] instanceSeq: ${difftest_instances}")
+    val exit = Option.when(config.exitOnAssertions) {
+      val asserted = RegInit(false.B)
+      VerificationExtractor.sink(asserted)
+      // Holds 1 after any assertion is asserted.
+      RegEnable(1.U(64.W), 0.U(64.W), asserted)
+    }
+    val instances = difftest_instances.map(_._1).toSeq
+    val sink = if (config.needEndpoint) {
+      val gatewayIn = if (config.traceLoad) {
+        MixedVecInit(Trace.load(instances).toSeq.map(_.asUInt))
+      } else {
+        val packed = WireInit(0.U.asTypeOf(MixedVec(instances.map(gen => UInt(gen.getWidth.W)))))
+        for ((data, idx) <- packed.zipWithIndex) {
+          data := difftest_instances(idx)._1.asUInt
+        }
+        packed
+      }
+      val endpoint = Module(new GatewayEndpoint(difftest_instances, config))
+      endpoint.in := gatewayIn
+      GatewayResult(
+        instances = endpoint.instances,
+        structPacked = Some(config.isBatch),
+        structAligned = Some(config.isDelta),
+        step = Some(endpoint.step),
+      )
+    } else {
+      GatewayResult(instances = instances) + GatewaySink.collect(config)
+    }
+    sink + GatewayResult(
+      cppMacros = config.cppMacros,
+      vMacros = config.vMacros,
+      cppExtModule = Some(config.isGSIM),
+      exit = exit,
+    )
+  }
 }
 
 class GatewayEndpoint(instanceWithDelay: Seq[(DifftestBundle, Int)], config: GatewayConfig) extends Module {

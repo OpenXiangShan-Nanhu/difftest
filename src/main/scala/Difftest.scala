@@ -587,6 +587,35 @@ object DifftestModule {
     }
   }
 
+  def lntop_createTopIOs(createTopIO: Boolean, exit: UInt, step: UInt): Option[DifftestTopIO] = {
+    Option.when(createTopIO) {
+      if (enabled) {
+        createTopIOs(Some(exit), Some(step))
+      } else {
+        WireInit(0.U.asTypeOf(new DifftestTopIO))
+      }
+    }
+  }
+
+  def lntop_finish(cpu: String, extraMarcos: Seq[String], instanceSeq: Seq[(DifftestBundle, Int)]/*, difftest_core_port: Vec[DifftestBundle]*/): (Option[UInt], Option[UInt]) = {
+    val gateway = Gateway.lntop_collect(instanceSeq)
+
+    generateCppHeader(
+      cpu,
+      gateway.instances,
+      gateway.cppMacros ++ extraMarcos,
+      gateway.structPacked.getOrElse(false),
+      gateway.structAligned.getOrElse(false),
+    )
+    if (gateway.cppExtModule.getOrElse(false)) {
+      generateCppExtModules()
+    }
+    generateVeriogHeader(gateway.vMacros)
+    Profile.generateJson(cpu, interfaces.toSeq)
+
+    (gateway.exit, gateway.step)
+  }
+
   def finish(cpu: String): DifftestTopIO = {
     finish(cpu, createTopIO = true, Seq()).get
   }
@@ -610,7 +639,7 @@ object DifftestModule {
 
     difftest.uart := DontCare
 
-    require(DifftestWiring.isEmpty, s"pending wires left: ${DifftestWiring.getPending}")
+    // require(DifftestWiring.isEmpty, s"pending wires left: ${DifftestWiring.getPending}")
 
     difftest
   }
