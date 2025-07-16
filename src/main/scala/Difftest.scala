@@ -570,13 +570,11 @@ object DifftestModule {
     }
   }
 
-  def lntop_createTopIOs(createTopIO: Boolean, exit: UInt, step: UInt): Option[DifftestTopIO] = {
-    Option.when(createTopIO) {
-      if (enabled) {
-        createTopIOs(Some(exit), Some(step))
-      } else {
-        WireInit(0.U.asTypeOf(new DifftestTopIO))
-      }
+  def lntop_createTopIOs(exit: UInt, step: UInt): Option[DifftestTopIO] = {
+    if (enabled) {
+      createTopIOs(Some(exit), Some(step))
+    } else {
+      WireInit(0.U.asTypeOf(new DifftestTopIO))
     }
   }
 
