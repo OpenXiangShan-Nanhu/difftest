@@ -230,7 +230,11 @@ object Gateway {
       } else {
         val packed = WireInit(0.U.asTypeOf(MixedVec(instances.map(gen => UInt(gen.getWidth.W)))))
         for ((data, idx) <- packed.zipWithIndex) {
-          data := difftest_instances(idx)._1.asUInt
+          if(config.hierarchicalWiring) {
+            data := difftest_instances(idx)._1.asUInt
+          } else {
+            DifftestWiring.addSink(data, s"gateway_$idx", config.hierarchicalWiring)
+          }
         }
         packed
       }
