@@ -213,7 +213,7 @@ class DPIC[T <: DifftestBundle](gen: T, config: GatewayConfig) extends DPICBase(
   }
 
   createCppExtModule(desiredName, cppExtModule, Some("\"difftest-dpic.h\""))
-  setInline(s"$desiredName.v", moduleBody)
+  setInline(s"$desiredName.sv", moduleBody)
 }
 
 class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: GatewayConfig) extends DPICBase(config) {
@@ -319,7 +319,7 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
   }
 
   createCppExtModule(desiredName, cppExtModule, Some("\"difftest-dpic.h\""))
-  setInline(s"$desiredName.v", moduleBody)
+  setInline(s"$desiredName.sv", moduleBody)
 }
 
 private class DummyDPICWrapper(gen: Valid[DifftestBundle], config: GatewayConfig) extends Module {
