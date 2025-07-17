@@ -1,41 +1,28 @@
 package difftest.gateway
 
-import scala.collection.mutable.ListBuffer
+import scala.collection.mutable
 import difftest._
 import chisel3._
 
-class CoreGateway {
-  val gatewayList = ListBuffer.empty[(Data, Int, String)]
-  def addOne(bundle: Data, delay: Int, name: String): Unit = {
-    gatewayList += ((bundle, delay, name))
-  }
+object CoreGateway {
+  private val gatewayMap = mutable.HashMap[String, (Data, Int)]()
 
   def PrintGateway(): Unit = {
     println("Difftest Gateway List:")
-    gatewayList.foreach { case (bundle, delay, name) =>
+    gatewayMap.foreach { case (name, (bundle, delay)) =>
       println(s"Delay: $delay, Bundle: ${bundle}, Name: $name")
     }
   }
 
-  def getOne(name: String): Data = {
-    gatewayList.filter(_._3 == name).head._1
-  }
-}
-
-object CoreGateway {
-  val gateway = new CoreGateway()
-  
-  def PrintGateway(): Unit = {
-    gateway.PrintGateway()
-  }
-
   def addOne(bundle: Data, delay: Int, name: String): Unit = {
-    gateway.addOne(bundle, delay, name)
+    require(!gatewayMap.contains(name.toUpperCase), s"difftest signals $name is already recorded!")
+    val elm = name.toUpperCase -> (bundle, delay)
+    gatewayMap.addOne(elm)
   }
 
   def getOne(name: String): Data = {
-    println(name)
-    gateway.getOne(name)
+    require(gatewayMap.contains(name.toUpperCase), s"difftest signals $name is not recorded!")
+    gatewayMap(name.toUpperCase)._1
   }
 }
 
@@ -60,10 +47,10 @@ class CoreGatewayBundle extends Bundle {
   // WbDataPath
   val intWritebackDelayCnt: Int = 0
   val intWriteback = Vec(9, new DiffIntWriteback(128))
-  
+
   val fpWritebackDelayCnt: Int = 0
   val fpWriteback = Vec(9, new DiffFpWriteback(160))
-  
+
   val vecWritebackDelayCnt: Int = 0
   val vecWriteback = Vec(9, new DiffVecWriteback(160))
 
@@ -140,21 +127,21 @@ class CoreGatewayBundle extends Bundle {
 
   def getInstanceSeq: Seq[(DifftestBundle, Int)] = {
     Seq((archEvent, archEventDelayCnt)) ++
-        instrCommit.map(c => (c, instrCommitDelayCnt)) ++
-        intWriteback.map(wb => (wb, intWritebackDelayCnt)) ++
-        fpWriteback.map(wb => (wb, fpWritebackDelayCnt)) ++
-        vecWriteback.map(wb => (wb, vecWritebackDelayCnt)) ++
-        vecV0Writeback.map(wb => (wb, vecV0WritebackDelayCnt)) :+
-        (csrState, csrStateDelayCnt) :+
-        (hcsrState, hcsrStateDelayCnt) :+
-        (debugMode, debugModeDelayCnt) :+
-        (triggerCSRState, triggerCSRStateDelayCnt) :+
-        (fpCSRState, fpCSRStateDelayCnt) :+
-        (archIntRegState, archIntRegDelayCnt) :+
-        (archFpRegState, archFpRegDelayCnt) :+
-        (nonRegInterruptPendingEvent, nonRegInterruptPendingEventDelayCnt) :+
-        (trapEvent, trapEventDelayCnt) :+
-        (lrscEvent, lrscEventDelayCnt)
+      instrCommit.map(c => (c, instrCommitDelayCnt)) ++
+      intWriteback.map(wb => (wb, intWritebackDelayCnt)) ++
+      fpWriteback.map(wb => (wb, fpWritebackDelayCnt)) ++
+      vecWriteback.map(wb => (wb, vecWritebackDelayCnt)) ++
+      vecV0Writeback.map(wb => (wb, vecV0WritebackDelayCnt)) :+
+      (csrState, csrStateDelayCnt) :+
+      (hcsrState, hcsrStateDelayCnt) :+
+      (debugMode, debugModeDelayCnt) :+
+      (triggerCSRState, triggerCSRStateDelayCnt) :+
+      (fpCSRState, fpCSRStateDelayCnt) :+
+      (archIntRegState, archIntRegDelayCnt) :+
+      (archFpRegState, archFpRegDelayCnt) :+
+      (nonRegInterruptPendingEvent, nonRegInterruptPendingEventDelayCnt) :+
+      (trapEvent, trapEventDelayCnt) :+
+      (lrscEvent, lrscEventDelayCnt)
   }
 }
 
