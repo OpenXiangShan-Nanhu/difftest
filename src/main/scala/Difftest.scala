@@ -548,6 +548,7 @@ object DifftestModule {
       difftest := DontCare
       difftest.bits.getValidOption.foreach(_ := false.B)
     }
+    dontTouch(difftest)
     interfaces.append((gen, delay))
     difftest
   }
