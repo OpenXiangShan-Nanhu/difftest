@@ -135,6 +135,8 @@ case class GatewayResult(
 object Gateway {
   private val instanceWithDelay = ListBuffer.empty[(DifftestBundle, Int)]
   private var config = GatewayConfig()
+  
+  def needEndpoint = config.needEndpoint
 
   def setConfig(cfg: String): Unit = {
     cfg.foreach {
