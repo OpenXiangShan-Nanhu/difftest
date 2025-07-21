@@ -316,7 +316,7 @@ always @(posedge clock) begin
   if (!reset) begin
     if (n_cycles && |difftest_step) begin
       // delay a little before trigger the simv step event
-      #0.1 -> simv_step_event;
+      #0.1ns -> simv_step_event;
     end
   end
 end
