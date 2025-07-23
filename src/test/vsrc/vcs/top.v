@@ -120,8 +120,13 @@ end
 `ifndef WIRE_CLK
 initial begin
   clock = 0;
+  `ifndef PALLADIUM
   #2.5ns;
   forever #0.25ns clock = ~clock;
+  `else
+  #25;
+  forever #2.5 clock = ~clock;
+  `endif
 end
 `endif // WIRE_CLK
 

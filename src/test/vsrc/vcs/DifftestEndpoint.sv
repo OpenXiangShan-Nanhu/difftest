@@ -316,7 +316,11 @@ always @(posedge clock) begin
   if (!reset) begin
     if (n_cycles && |difftest_step) begin
       // delay a little before trigger the simv step event
+      `ifndef PALLADIUM
       #0.1ns -> simv_step_event;
+      `else
+      #0.1 -> simv_step_event;
+      `endif
     end
   end
 end
