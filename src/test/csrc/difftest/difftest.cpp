@@ -81,6 +81,8 @@ int difftest_nstep(int step, bool enable_diff) {
         return STATE_ABORT;
     } else {
       difftest_set_dut();
+      if(difftest_check_trap())
+        return STATE_GOODTRAP;
     }
     int status = difftest_state();
     if (status != STATE_RUNNING)
@@ -108,6 +110,15 @@ int difftest_step() {
     int ret = difftest[i]->step();
     if (ret) {
       return ret;
+    }
+  }
+  return 0;
+}
+
+int difftest_check_trap() {
+  for (int i = 0; i < NUM_CORES; i++) {
+    if(difftest[i]->dut->event.valid && (difftest[i]->dut->event.exceptionInst & 0xffff) == 0x6b) {
+      return 1;
     }
   }
   return 0;
