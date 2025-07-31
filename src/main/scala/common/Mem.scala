@@ -88,7 +88,11 @@ private trait HasReadPort { this: ExtModule =>
     """
       |  r_data = 0;
       |`ifndef DISABLE_DIFFTEST_RAM_DPIC
-      |  if (r_enable) r_data = difftest_ram_read(r_index);
+      |  if (r_enable) begin
+      |    for (integer i = 0; i < 4; i++) begin
+      |      r_data[i*64 +: 64] = difftest_ram_read((r_index << 2) + i);
+      |    end
+      |  end
       |`else
       |  if (r_enable) r_data = `MEM_TARGET[r_index];
       |`endif // DISABLE_DIFFTEST_RAM_DPIC
@@ -141,7 +145,9 @@ private trait HasWritePort { this: ExtModule =>
     """
       |`ifndef DISABLE_DIFFTEST_RAM_DPIC
       |if (w_enable) begin
-      |  difftest_ram_write(w_index, w_data, w_mask);
+      |  for (integer i = 0; i < 4; i++) begin
+      |    difftest_ram_write((w_index << 2) + i, w_data[i*64 +: 64], w_mask[i*64 +: 64]);
+      |  end
       |end
       |`else
       |if (w_enable) begin
