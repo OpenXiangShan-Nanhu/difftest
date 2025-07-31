@@ -38,7 +38,7 @@ private trait HasMemInitializer { this: ExtModule =>
       |    end
       |    foreach (`MEM_TARGET[i]) begin
       |      if (byte_read == 0) break;
-      |      for (integer j = 0; j < 8; j++) begin
+      |      for (integer j = 0; j < 32; j++) begin
       |        byte_read = $fread(data, memory_image);
       |        if (byte_read == 0) break;
       |        n_read += 1;
@@ -63,79 +63,26 @@ private trait HasMemInitializer { this: ExtModule =>
        |""".stripMargin
 }
 
-private trait HasMemReadHelper { this: ExtModule =>
-  private def r(i: Int): String = s"r_$i"
+private trait HasReadPort { this: ExtModule =>
+  val r = IO(new Bundle {
+    val enable = Input(Bool())
+    val index = Input(UInt(64.W))
+    val data = Output(UInt(256.W))
+  })
 
-  private def sv_interface(i: Int): String =
-    s"""
-       |input             ${r(i)}_enable,
-       |input      [63:0] ${r(i)}_index,
-       |output reg [63:0] ${r(i)}_data,
-       |output            ${r(i)}_async
-       |""".stripMargin
-  def r_sv_interface(n: Int): String = (0 until n).map(sv_interface).mkString(",\n")
+  val r_dpic =
+    """
+      |`ifndef DISABLE_DIFFTEST_RAM_DPIC
+      |import "DPI-C" function longint difftest_ram_read(input longint rIdx);
+      |`endif // DISABLE_DIFFTEST_RAM_DPIC
+      |""".stripMargin
 
-  private def sv_body(i: Int): String =
-    s"""
-       |`ifdef GSIM
-       |  assign ${r(i)}_async = 1'b1;
-       |always @(*) begin
-       |  ${r(i)}_data = 0;
-       |`ifndef DISABLE_DIFFTEST_RAM_DPIC
-       |  if (${r(i)}_enable) begin
-       |    ${r(i)}_data = difftest_ram_read(${r(i)}_index);
-       |  end
-       |`else
-       |  if (${r(i)}_enable) begin
-       |    ${r(i)}_data = `MEM_TARGET[${r(i)}_index];
-       |  end
-       |`endif // DISABLE_DIFFTEST_RAM_DPIC
-       |end
-       |`else // GSIM
-       |  assign ${r(i)}_async = 1'b0;
-       |always @(posedge clock) begin
-       |`ifndef DISABLE_DIFFTEST_RAM_DPIC
-       |  if (${r(i)}_enable) begin
-       |    ${r(i)}_data <= difftest_ram_read(${r(i)}_index);
-       |  end
-       |`else
-       |  if (${r(i)}_enable) begin
-       |    ${r(i)}_data <= `MEM_TARGET[${r(i)}_index];
-       |  end
-       |`endif // DISABLE_DIFFTEST_RAM_DPIC
-       |end
-       |`endif // GSIM
-       |""".stripMargin
-  def r_sv_body(n: Int): String = (0 until n).map(sv_body).mkString
-
-  private def cpp_arg(i: Int): String =
-    s"""
-       |uint8_t   ${r(i)}_enable,
-       |uint64_t  ${r(i)}_index,
-       |uint64_t& ${r(i)}_data,
-       |uint8_t&  ${r(i)}_async
-       |""".stripMargin
-  def r_cpp_arg(n: Int): String = (0 until n).map(cpp_arg).mkString(",\n")
-
-  private def cpp_body(i: Int): String =
-    s"""
-       |  ${r(i)}_async = 1;
-       |  if (${r(i)}_enable) ${r(i)}_data = difftest_ram_read(${r(i)}_index);
-       |""".stripMargin
-  def r_cpp_body(n: Int): String = (0 until n).map(cpp_body).mkString
-}
-
-private trait HasMemWriteHelper {
-  private def w(i: Int): String = s"w_$i"
-
-  private def sv_interface(i: Int): String =
-    s"""
-       |input         ${w(i)}_enable,
-       |input  [63:0] ${w(i)}_index,
-       |input  [63:0] ${w(i)}_data,
-       |input  [63:0] ${w(i)}_mask
-       |""".stripMargin
-  def w_sv_interface(n: Int): String = (0 until n).map(sv_interface).mkString(",\n")
+  val r_if =
+    """
+      |input             r_enable,
+      |input      [63:0] r_index,
+      |output reg [255:0] r_data,
+      |""".stripMargin
 
   private def sv_body(i: Int): String =
     s"""
@@ -180,22 +127,68 @@ private class CppMemReadIO extends Bundle {
   val async = Output(Bool())
 }
 
-private class CppMemWriteIO extends Bundle {
-  val enable = Input(Bool())
-  val index = Input(UInt(64.W))
-  val data = Input(UInt(64.W))
-  val mask = Input(UInt(64.W))
+private trait HasWritePort { this: ExtModule =>
+  val w = IO(new Bundle {
+    val enable = Input(Bool())
+    val index = Input(UInt(64.W))
+    val data = Input(UInt(256.W))
+    val mask = Input(UInt(256.W))
+  })
+
+  val w_dpic =
+    """
+      |`ifndef DISABLE_DIFFTEST_RAM_DPIC
+      |import "DPI-C" function void difftest_ram_write
+      |(
+      |  input  longint index,
+      |  input  longint data,
+      |  input  longint mask
+      |);
+      |`endif // DISABLE_DIFFTEST_RAM_DPIC
+      |""".stripMargin
+
+  val w_if =
+    """
+      |input         w_enable,
+      |input  [63:0] w_index,
+      |input  [255:0] w_data,
+      |input  [255:0] w_mask,
+      |""".stripMargin
+
+  val w_func =
+    """
+      |`ifndef DISABLE_DIFFTEST_RAM_DPIC
+      |if (w_enable) begin
+      |  difftest_ram_write(w_index, w_data, w_mask);
+      |end
+      |`else
+      |if (w_enable) begin
+      |  `MEM_TARGET[w_index] <= (w_data & w_mask) | (`MEM_TARGET[w_index] & ~w_mask);
+      |end
+      |`endif // DISABLE_DIFFTEST_RAM_DPIC
+      |""".stripMargin
+
+  val w_cpp_arg =
+    """
+      |uint8_t  w_enable,
+      |uint64_t w_index,
+      |uint64_t w_data,
+      |uint64_t w_mask""".stripMargin
+
+  val w_cpp_func = "if(w_enable) difftest_ram_write(w_index, w_data, w_mask);"
+
+  def write(enable: Bool, index: UInt, data: UInt, mask: UInt): HasWritePort = {
+    w.enable := enable
+    w.index := index
+    w.data := data
+    w.mask := mask
+    this
+  }
 }
 
-private class MemRWHelper(size: BigInt, val nr: Int, val nw: Int)
-  extends ExtModule(Map("RAM_SIZE" -> size))
-  with HasExtModuleInline
-  with HasMemInitializer
-  with HasMemReadHelper
-  with HasMemWriteHelper {
+abstract private class MemHelper extends ExtModule with HasExtModuleInline with HasMemInitializer
 
-  val r = IO(Vec(nr, new CppMemReadIO))
-  val w = IO(Vec(nw, new CppMemWriteIO))
+private class MemRWHelper extends MemHelper with HasReadPort with HasWritePort {
   val clock = IO(Input(Clock()))
 
   def read(i: Int, enable: Bool, index: UInt): UInt = {
@@ -212,7 +205,9 @@ private class MemRWHelper(size: BigInt, val nr: Int, val nw: Int)
 
   def mem_decl: String =
     """
-      |reg [63:0] memory [0 : RAM_SIZE / 8 - 1];
+      |// 1GB memory
+      |`define RAM_SIZE (256 * 1024 * 1024)
+      |reg [255:0] memory [0 : `RAM_SIZE / 8 - 1];
       |""".stripMargin
 
   def mem_target: String = "memory"
@@ -252,46 +247,40 @@ private class MemRWHelper(size: BigInt, val nr: Int, val nw: Int)
   )
 }
 
-class DifftestMemReadIO(nWord: Int) extends Bundle {
-  val valid = Input(Bool())
-  val index = Input(UInt(64.W))
-  val data = Output(Vec(nWord, UInt(64.W)))
-}
+abstract class DifftestMem(size: BigInt, lanes: Int, bits: Int) extends Module {
+  require(bits == 8 && lanes % 32 == 0, "supports 256-bits aligned byte access only")
+  require(lanes == 32, "supports 32 lanes only")
+  protected val n_helper = (size / (1L * 1024 * 1024 * 1024)).toInt // 8, 1GB memory per ram
+  private val helper = Seq.fill(n_helper)(Module(new MemRWHelper))
 
-class DifftestMemWriteIO(nWord: Int) extends Bundle {
-  val valid = Input(Bool())
-  val index = Input(UInt(64.W))
-  val data = Input(Vec(nWord, UInt(64.W)))
-  val mask = Input(Vec(nWord, UInt(64.W)))
-}
+  val read = IO(new Bundle {
+    val valid = Input(Bool())
+    val index = Input(UInt(64.W))
+    val data = Output(Vec(lanes / 32, UInt(256.W)))
+  })
+  val write = IO(Input(new Bundle {
+    val valid = Bool()
+    val index = UInt(64.W)
+    val data = Vec(lanes / 32, UInt(256.W))
+    val mask = Vec(lanes / 32, UInt(256.W))
+  }))
 
-class DifftestMem(size: BigInt, lanes: Int, bits: Int, nr: Int, nw: Int) extends Module {
-  override def desiredName: String = s"DifftestMem${nr}R${nw}W"
+  read.data.head := Mux1H(UIntToOH(read.index(27, 25)), helper.zipWithIndex.map { case (h, i) =>
+    h.clock := clock
+    h.read(
+      enable = !reset.asBool && read.valid,
+      index = read.index(24, 0),
+    )
+  })
 
-  require(bits == 8 && lanes % 8 == 0, "supports 64-bits aligned byte access only")
-  private val n_helper = lanes / 8
-
-  val read = IO(Vec(nr, new DifftestMemReadIO(n_helper)))
-  val write = IO(Vec(nw, new DifftestMemWriteIO(n_helper)))
-
-  private val helper = Seq.fill(n_helper)(Module(new MemRWHelper(size, nr, nw)))
-  read.zipWithIndex.foreach { case (r, i) =>
-    r.data := helper.zipWithIndex.map { case (h, j) =>
-      h.clock := clock
-      h.read(i, enable = !reset.asBool && r.valid, index = r.index * n_helper.U + j.U)
-    }
-  }
-  write.zipWithIndex.foreach { case (w, i) =>
-    helper.zipWithIndex.foreach { case (h, j) =>
-      h.clock := clock
-      h.write(
-        i,
-        enable = !reset.asBool && w.valid,
-        index = w.index * n_helper.U + j.U,
-        data = w.data(j),
-        mask = w.mask(j),
-      )
-    }
+  helper.zipWithIndex.foreach { case (h, i) =>
+    h.clock := clock
+    h.write(
+      enable = !reset.asBool && write.valid && write.index(27, 25) === i.U,
+      index = write.index(24, 0),
+      data = write.data.head,
+      mask = write.mask.head,
+    )
   }
 
   private var r_index = 0
