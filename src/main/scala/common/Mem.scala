@@ -84,47 +84,33 @@ private trait HasReadPort { this: ExtModule =>
       |output reg [255:0] r_data,
       |""".stripMargin
 
-  private def sv_body(i: Int): String =
-    s"""
-       |`ifndef DISABLE_DIFFTEST_RAM_DPIC
-       |if (${w(i)}_enable) begin
-       |  difftest_ram_write(${w(i)}_index, ${w(i)}_data, ${w(i)}_mask);
-       |end
-       |`else
-       |if (${w(i)}_enable) begin
-       |  `MEM_TARGET[${w(i)}_index] <= (${w(i)}_data & ${w(i)}_mask) | (`MEM_TARGET[${w(i)}_index] & ~${w(i)}_mask);
-       |end
-       |`endif // DISABLE_DIFFTEST_RAM_DPIC
-       |""".stripMargin
-  def w_sv_body(n: Int): String =
-    s"""
-       |always @(posedge clock) begin
-       |${(0 until n).map(sv_body).mkString}
-       |end
-       |""".stripMargin
+  val r_func =
+    """
+      |  r_data = 0;
+      |`ifndef DISABLE_DIFFTEST_RAM_DPIC
+      |  if (r_enable) begin
+      |    for (integer i = 0; i < 4; i++) begin
+      |      r_data[i*64 +: 64] = difftest_ram_read((r_index << 2) + i);
+      |    end
+      |  end
+      |`else
+      |  if (r_enable) r_data = `MEM_TARGET[r_index];
+      |`endif // DISABLE_DIFFTEST_RAM_DPIC
+      |""".stripMargin
 
-  private def cpp_arg(i: Int): String =
-    s"""
-       |uint8_t  ${w(i)}_enable,
-       |uint64_t ${w(i)}_index,
-       |uint64_t ${w(i)}_data,
-       |uint64_t ${w(i)}_mask""".stripMargin
-  def w_cpp_arg(n: Int): String = (0 until n).map(cpp_arg).mkString(",\n")
+  val r_cpp_arg =
+    """
+      |uint8_t   r_enable,
+      |uint64_t  r_index,
+      |uint64_t& r_data""".stripMargin
 
-  private def cpp_body(i: Int): String =
-    s"""
-       |  if (${w(i)}_enable) {
-       |    difftest_ram_write(${w(i)}_index, ${w(i)}_data, ${w(i)}_mask);
-       |  }
-       |""".stripMargin
-  def w_cpp_body(n: Int): String = (0 until n).map(cpp_body).mkString
-}
+  val r_cpp_func = "if (r_enable) r_data = difftest_ram_read(r_index);"
 
-private class CppMemReadIO extends Bundle {
-  val enable = Input(Bool())
-  val index = Input(UInt(64.W))
-  val data = Output(UInt(64.W))
-  val async = Output(Bool())
+  def read(enable: Bool, index: UInt): UInt = {
+    r.enable := enable
+    r.index := index
+    RegEnable(r.data, r.enable)
+  }
 }
 
 private trait HasWritePort { this: ExtModule =>
@@ -159,7 +145,9 @@ private trait HasWritePort { this: ExtModule =>
     """
       |`ifndef DISABLE_DIFFTEST_RAM_DPIC
       |if (w_enable) begin
-      |  difftest_ram_write(w_index, w_data, w_mask);
+      |  for (integer i = 0; i < 4; i++) begin
+      |    difftest_ram_write((w_index << 2) + i, w_data[i*64 +: 64], w_mask[i*64 +: 64]);
+      |  end
       |end
       |`else
       |if (w_enable) begin
