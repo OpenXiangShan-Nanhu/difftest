@@ -181,9 +181,9 @@ private class MemRWHelper extends MemHelper with HasReadPort with HasWritePort {
 
   def mem_decl: String =
     """
-      |// 1GB memory
+      |// 8GB memory
       |`define RAM_SIZE (256 * 1024 * 1024)
-      |reg [255:0] memory [0 : `RAM_SIZE / 8 - 1];
+      |reg [255:0] memory [0 : `RAM_SIZE - 1];
       |""".stripMargin
 
   def mem_target: String = "memory"
@@ -228,7 +228,7 @@ private class MemRWHelper extends MemHelper with HasReadPort with HasWritePort {
 abstract class DifftestMem(size: BigInt, lanes: Int, bits: Int) extends Module {
   require(bits == 8 && lanes % 32 == 0, "supports 256-bits aligned byte access only")
   require(lanes == 32, "supports 32 lanes only")
-  protected val n_helper = (size / (1L * 1024 * 1024 * 1024)).toInt // 8, 1GB memory per ram
+  protected val n_helper = lanes / 32
   private val helper = Seq.fill(n_helper)(Module(new MemRWHelper))
 
   val read = IO(new Bundle {
@@ -243,21 +243,21 @@ abstract class DifftestMem(size: BigInt, lanes: Int, bits: Int) extends Module {
     val mask = Vec(lanes / 32, UInt(256.W))
   }))
 
-  read.data.head := Mux1H(UIntToOH(read.index(27, 25)), helper.zipWithIndex.map { case (h, i) =>
+  read.data := helper.zipWithIndex.map { case (h, i) =>
     h.clock := clock
     h.read(
       enable = !reset.asBool && read.valid,
-      index = read.index(24, 0),
+      index = read.index * n_helper.U + i.U,
     )
-  })
+  }
 
   helper.zipWithIndex.foreach { case (h, i) =>
     h.clock := clock
     h.write(
-      enable = !reset.asBool && write.valid && write.index(27, 25) === i.U,
-      index = write.index(24, 0),
-      data = write.data.head,
-      mask = write.mask.head,
+      enable = !reset.asBool && write.valid,
+      index = write.index * n_helper.U + i.U,
+      data = write.data(i),
+      mask = write.mask(i),
     )
   }
 
