@@ -85,17 +85,11 @@ end
 
 `ifndef RESET_COUNTER
 initial begin
-`ifdef VCS
-  $assertoff(0, "top");
-`endif // VCS
   reset = 0;
   #0.5ns;
   reset = 1;
   #25ns;
   reset = 0;
-`ifdef VCS
-  $asserton(0, "top");
-`endif // VCS
 end
 `else
 reg [7:0] reset_counter;
