@@ -90,7 +90,7 @@ module SystemExtensionWrapper #(
 
   assign o_noc_clk = i_top_clk;
   assign o_cpu_clk = {NR_CC{i_top_clk}};
-  assign o_noc_rst = i_top_rst
+  assign o_noc_rst = i_top_rst;
   assign s_axi_cfg_aw_ready = 1'h0;
   assign s_axi_cfg_ar_ready = 1'h0;
   assign s_axi_cfg_w_ready = 1'h0;
