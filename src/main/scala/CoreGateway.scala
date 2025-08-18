@@ -73,8 +73,8 @@ class CoreGatewayBundle extends Bundle {
   val fpCSRStateDelayCnt: Int = 0
   val fpCSRState = new DiffFpCSRState
 
-  val hcsrStateDelayCnt: Int = 0
-  val hcsrState = new DiffHCSRState
+  // val hcsrStateDelayCnt: Int = 0
+  // val hcsrState = new DiffHCSRState
 
   val nonRegInterruptPendingEventDelayCnt: Int = 0
   val nonRegInterruptPendingEvent = new DiffNonRegInterruptPendingEvent
@@ -133,7 +133,7 @@ class CoreGatewayBundle extends Bundle {
       vecWriteback.map(wb => (wb, vecWritebackDelayCnt)) ++
       vecV0Writeback.map(wb => (wb, vecV0WritebackDelayCnt)) :+
       (csrState, csrStateDelayCnt) :+
-      (hcsrState, hcsrStateDelayCnt) :+
+      // (hcsrState, hcsrStateDelayCnt) :+
       (debugMode, debugModeDelayCnt) :+
       (triggerCSRState, triggerCSRStateDelayCnt) :+
       (fpCSRState, fpCSRStateDelayCnt) :+
@@ -144,4 +144,3 @@ class CoreGatewayBundle extends Bundle {
       (lrscEvent, lrscEventDelayCnt)
   }
 }
-
