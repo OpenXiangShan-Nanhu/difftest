@@ -181,8 +181,8 @@ private class MemRWHelper extends MemHelper with HasReadPort with HasWritePort {
 
   def mem_decl: String =
     """
-      |// 8GB memory
-      |`define RAM_SIZE (256 * 1024 * 1024)
+      |// 16GB memory
+      |`define RAM_SIZE (512 * 1024 * 1024)
       |reg [255:0] memory [0 : `RAM_SIZE - 1];
       |""".stripMargin
 
