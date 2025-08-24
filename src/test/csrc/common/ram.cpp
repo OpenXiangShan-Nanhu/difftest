@@ -482,12 +482,16 @@ uint64_t parse_ramsize(const char *ramsize_str) {
 }
 
 #ifdef WITH_DRAMSIM3
+// https://stackoverflow.com/questions/2653214/stringification-of-a-macro-value
+#define xstr(a) str(a)
+#define str(a) #a
+
 void dramsim3_init(const char *config_file, const char *out_dir) {
 #if !defined(DRAMSIM3_CONFIG) || !defined(DRAMSIM3_OUTDIR)
 #error DRAMSIM3_CONFIG or DRAMSIM3_OUTDIR is not defined
 #endif
 
-  config_file = (config_file == nullptr) ? DRAMSIM3_CONFIG : config_file;
+  config_file = (config_file == nullptr) ? xstr(DRAMSIM3_CONFIG) : config_file;
 
   assert(dram == NULL);
   // check config_file is valid
@@ -498,7 +502,7 @@ void dramsim3_init(const char *config_file, const char *out_dir) {
   }
   ifs.close();
 
-  out_dir = (out_dir == nullptr) ? DRAMSIM3_OUTDIR : out_dir;
+  out_dir = (out_dir == nullptr) ? xstr(DRAMSIM3_OUTDIR) : out_dir;
 
   std::cout << "DRAMSIM3 config: " << config_file << std::endl;
   std::cout << "DRAMSIM3 outdir: " << out_dir << std::endl;
