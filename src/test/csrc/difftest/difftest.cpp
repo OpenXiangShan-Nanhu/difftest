@@ -33,6 +33,11 @@
 
 Difftest **difftest = NULL;
 
+typedef union {
+    uint64_t u64;
+    uint8_t u8[8];
+} uint64_splitter;
+
 int difftest_init() {
 #ifdef CONFIG_DIFFTEST_PERFCNT
   difftest_perfcnt_init();
@@ -1013,6 +1018,34 @@ int Difftest::do_refill_check(int cacheid) {
           Info("\n");
           update_goldenmem(dut_refill->addr, dut_refill->data, 0xffffffffffffffffUL, 64);
           proxy->ref_memcpy(dut_refill->addr, dut_refill->data, 64, DUT_TO_REF);
+
+          if(dut_refill->hasStoreData){
+            Info("\n store has data, update goldenmem");
+            update_goldenmem(dut_refill->addr, dut_refill->storeData, dut_refill->storeMask, 64);
+          }
+
+          uint64_splitter data_splitter;
+          uint64_splitter mask_splitter;
+
+          for(int i = 0;i < 8; i++){
+            data_splitter.u64 = dut_refill->storeData[i];
+            mask_splitter.u64 = dut_refill->storeMask;
+
+            for(int j = 0; j < 8; j++){
+              uint64_t storeAddr = dut_refill->addr + (i*8+j);
+              Info("\n storeAddr = 0x%lx,data = 0x%lx,mask = %d",storeAddr,data_splitter.u8[j],(mask_splitter.u8[i] >> j) & 1);
+
+              if((mask_splitter.u8[i] >> j) & 1){
+                Info("\n store has data, update ref memory");
+                // Info("\n storeAddr = 0x%lx,data = 0x%lx,mask = %d",storeAddr,data_splitter.u8[j],(mask_splitter.u8[i] >> j) & 1);
+                proxy->ref_memcpy(storeAddr, &data_splitter.u8[j], 1, DUT_TO_REF);
+              }
+            }
+          }
+          
+   
+
+
           cmo_inval_event_set.erase(dut_refill->addr);
           return 0;
         } else {

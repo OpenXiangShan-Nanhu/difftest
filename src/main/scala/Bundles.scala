@@ -304,6 +304,9 @@ class RefillEvent extends DifftestBaseBundle with HasValid {
   val addr = UInt(64.W)
   val data = Vec(8, UInt(64.W))
   val idtfr = UInt(8.W) // identifier for flexible usage
+  val hasStoreData = Bool()
+  val storeData = Vec(8, UInt(64.W))
+  val storeMask = UInt(64.W)
 }
 
 class ScEvent extends DifftestBaseBundle with HasValid {
