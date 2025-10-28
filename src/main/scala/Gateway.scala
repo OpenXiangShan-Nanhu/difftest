@@ -47,6 +47,7 @@ case class GatewayConfig(
   traceDump: Boolean = false,
   traceLoad: Boolean = false,
   hierarchicalWiring: Boolean = false,
+  exitOnAssertions: Boolean = false,
   isFPGA: Boolean = false,
   isGSIM: Boolean = false,
 ) {
@@ -221,7 +222,7 @@ object Gateway {
     println(s"[lntop_collect] instanceSeq: ${difftest_instances}")
     val exit = Option.when(config.exitOnAssertions) {
       val asserted = RegInit(false.B)
-      VerificationExtractor.sink(asserted)
+      // VerificationExtractor.sink(asserted)
       // Holds 1 after any assertion is asserted.
       RegEnable(1.U(64.W), 0.U(64.W), asserted)
     }

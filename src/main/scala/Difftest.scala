@@ -555,7 +555,24 @@ object DifftestModule {
 
   def get_current_interfaces(): Seq[(DifftestBundle, Int)] = interfaces.toSeq
 
-  def finish(cpu: String, createTopIO: Boolean, extraMarcos:Seq[String]): Option[DifftestTopIO] = {
+  def collect(cpu: String): GatewayResult = {
+    val gateway = Gateway.collect()
+    generateCppHeader(
+      cpu,
+      gateway.instances,
+      gateway.cppMacros,
+      gateway.structPacked.getOrElse(false),
+      gateway.structAligned.getOrElse(false),
+    )
+    if (gateway.cppExtModule.getOrElse(false)) {
+      generateCppExtModules()
+    }
+    generateVerilogHeader(cpu, gateway.vMacros)
+    Profile.generateJson(cpu, interfaces.toSeq)
+    gateway
+  }
+
+  def finish(cpu: String, createTopIO: Boolean, extraMarcos:Seq[String]): GatewayResult = {
     val gateway = Gateway.collect()
     generateCppHeader(
       cpu,
@@ -609,14 +626,14 @@ object DifftestModule {
     if (gateway.cppExtModule.getOrElse(false)) {
       generateCppExtModules()
     }
-    generateVeriogHeader(gateway.vMacros)
+    generateVerilogHeader("LinkNan", gateway.vMacros)
     Profile.generateJson(cpu, interfaces.toSeq)
 
     (gateway.exit, gateway.step)
   }
 
   def finish(cpu: String): DifftestTopIO = {
-    finish(cpu, createTopIO = true, Seq()).get
+    finish(cpu, createTopIO = true).get
   }
 
   def finish(cpu: String, extraMarcos:Seq[String]): DifftestTopIO = {

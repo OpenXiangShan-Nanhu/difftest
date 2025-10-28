@@ -179,18 +179,6 @@ abstract private class MemHelper extends ExtModule with HasExtModuleInline with 
 private class MemRWHelper extends MemHelper with HasReadPort with HasWritePort {
   val clock = IO(Input(Clock()))
 
-  def read(i: Int, enable: Bool, index: UInt): UInt = {
-    r(i).enable := enable
-    r(i).index := index
-    Mux(r(i).async, RegEnable(r(i).data, r(i).enable), r(i).data)
-  }
-  def write(i: Int, enable: Bool, index: UInt, data: UInt, mask: UInt): Unit = {
-    w(i).enable := enable
-    w(i).index := index
-    w(i).data := data
-    w(i).mask := mask
-  }
-
   def mem_decl: String =
     """
       |// 16GB memory
@@ -200,36 +188,38 @@ private class MemRWHelper extends MemHelper with HasReadPort with HasWritePort {
 
   def mem_target: String = "memory"
 
-  override def desiredName: String = s"Mem${nr}R${nw}WHelper"
-
   val cppExtModule =
     s"""
-       |static void $desiredName(
-       |${r_cpp_arg(nr)},
-       |${w_cpp_arg(nw)}
+       |void MemRWHelper(
+       |$r_cpp_arg,
+       |$w_cpp_arg
        |) {
-       |  ${r_cpp_body(nr)}
-       |  ${w_cpp_body(nw)}
+       |  $r_cpp_func
+       |  $w_cpp_func
        |}
        |""".stripMargin
-  difftest.DifftestModule.createCppExtModule(desiredName, cppExtModule, Some("\"ram.h\""))
+  difftest.DifftestModule.createCppExtModule("MemRWHelper", cppExtModule, Some("\"ram.h\""))
 
   setInline(
-    s"$desiredName.v",
+    "MemRWHelper.v",
     s"""
        |`ifdef SYNTHESIS
        |  `define DISABLE_DIFFTEST_RAM_DPIC
        |`endif
-       |module $desiredName #(
-       |  parameter RAM_SIZE
-       |)(
-       |  input clock,
-       |  ${r_sv_interface(nr)},
-       |  ${w_sv_interface(nw)}
+       |$r_dpic
+       |$w_dpic
+       |module MemRWHelper(
+       |  $r_if
+       |  $w_if
+       |  input clock
        |);
        |  $mem_init
-       |  ${r_sv_body(nr)}
-       |  ${w_sv_body(nw)}
+       |  always @(*) begin
+       |    $r_func
+       |  end
+       |  always @(posedge clock) begin
+       |    $w_func
+       |  end
        |endmodule
      """.stripMargin,
   )
@@ -271,71 +261,110 @@ abstract class DifftestMem(size: BigInt, lanes: Int, bits: Int) extends Module {
     )
   }
 
-  private var r_index = 0
-  def read(addr: UInt, en: Bool): Vec[UInt] = {
-    val port = read(r_index)
-    r_index += 1
-    port.valid := en
-    port.index := addr
-    port.data
+  def read(addr: UInt): Vec[UInt] = {
+    read.valid := !write.valid
+    read.index := addr
+    read.data
   }
 
   def readAndHold(addr: UInt, en: Bool): Vec[UInt] = {
-    val port = read(r_index)
-    r_index += 1
-    port.valid := en
-    port.index := addr
-    Mux(RegNext(en), port.data, RegEnable(port.data, RegNext(en))).asTypeOf(Vec(lanes, UInt(bits.W)))
+    read.valid := en
+    read.index := addr
+    Mux(RegNext(en), read.data, RegEnable(read.data, RegNext(en))).asTypeOf(Vec(lanes, UInt(bits.W)))
   }
 
-  private var w_index = 0
   def write(addr: UInt, data: Seq[UInt], mask: Seq[Bool]): Unit = {
-    val port = write(w_index)
-    w_index += 1
-    port.valid := true.B
-    port.index := addr
-    port.data := VecInit(data).asTypeOf(port.data)
+    write.valid := true.B
+    write.index := addr
+    write.data := VecInit(data).asTypeOf(write.data)
     require(data.length == lanes, s"data Vec[UInt] should have the length of $lanes")
     require(mask.length == lanes, s"mask Vec[Bool] should have the length of $lanes")
     require(data.head.getWidth == bits, s"data should have the width of $bits")
-    port.mask := VecInit(mask.map(m => Fill(bits, m))).asTypeOf(port.mask)
+    write.mask := VecInit(mask.map(m => Fill(bits, m))).asTypeOf(write.mask)
   }
 }
 
-private class DifftestMem1P(size: BigInt, lanes: Int, bits: Int) extends DifftestMem(size, lanes, bits, 1, 1) {
-  assert(!read.head.valid || !write.head.valid, "read and write come at the same cycle")
+private class MemInitializer(mem: String) extends MemHelper {
+  override def mem_decl: String = ""
+  override def mem_target: String = mem
+
+  setInline(
+    s"$desiredName.v",
+    s"""
+       |module $desiredName();
+       |$mem_init
+       |endmodule
+      """.stripMargin,
+  )
 }
 
-private class DifftestMemMP(size: BigInt, lanes: Int, bits: Int, nr: Int, nw: Int)
-  extends DifftestMem(size, lanes, bits, nr, nw) {
-  override def desiredName: String = s"DifftestMem${nr}R${nw}W"
+private class SynthesizableDifftestMem(size: BigInt, lanes: Int, bits: Int) extends DifftestMem(size, lanes, bits) {
+  val mem = Mem(size / 8, UInt(64.W))
+
+  for (i <- 0 until n_helper) {
+    val r_index = read.index * n_helper.U + i.U
+    read.data(i) := RegEnable(mem(r_index), read.valid)
+
+    val w_index = write.index * n_helper.U + i.U
+    when(write.valid) {
+      mem(w_index) := (write.data(i) & write.mask(i)) | (mem(w_index) & (~write.mask(i)).asUInt)
+    }
+  }
+
+  Module(new MemInitializer(s"$desiredName.mem"))
+}
+
+private class DifftestMem2P(size: BigInt, lanes: Int, bits: Int) extends DifftestMem(size, lanes, bits)
+
+private class DifftestMem1P(size: BigInt, lanes: Int, bits: Int) extends DifftestMem2P(size, lanes, bits) {
+  assert(!read.valid || !write.valid, "read and write come at the same cycle")
+}
+
+private class DifftestMemReadOnly(size: BigInt, lanes: Int, bits: Int) extends DifftestMem(size, lanes, bits) {
+  assert(!write.valid, "no write allowed in read-only mem")
+}
+
+private class DifftestMemWriteOnly(size: BigInt, lanes: Int, bits: Int) extends DifftestMem(size, lanes, bits) {
+  assert(!read.valid, "no read allowed in write-only mem")
 }
 
 object DifftestMem {
   private def setDefaultIOs(mod: DifftestMem): DifftestMem = {
     mod.read := DontCare
-    mod.read.foreach(_.valid := false.B)
+    mod.read.valid := false.B
     mod.write := DontCare
-    mod.write.foreach(_.valid := false.B)
+    mod.write.valid := false.B
     mod
   }
 
-  def apply(size: BigInt, beatBytes: Int): DifftestMem = apply(size, beatBytes, 8)
+  def apply(size: BigInt, beatBytes: Int): DifftestMem = {
+    apply(size, beatBytes, 8)
+  }
 
-  // only for compatibility
+  def apply(size: BigInt, beatBytes: Int, synthesizable: Boolean): DifftestMem = {
+    apply(size, beatBytes, 8, synthesizable = synthesizable)
+  }
+
   def apply(
     size: BigInt,
     lanes: Int,
     bits: Int,
     synthesizable: Boolean = false,
     singlePort: Boolean = true,
-  ): DifftestMem = apply(size, lanes, bits, 1, 1)
+  ): DifftestMem = {
+    setDefaultIOs((synthesizable, singlePort) match {
+      case (true, _)      => Module(new SynthesizableDifftestMem(size, lanes, bits))
+      case (false, true)  => Module(new DifftestMem1P(size, lanes, bits))
+      case (false, false) => Module(new DifftestMem2P(size, lanes, bits))
+    })
+  }
 
-  def apply(
-    size: BigInt,
-    lanes: Int,
-    bits: Int,
-    nr: Int,
-    nw: Int,
-  ): DifftestMem = setDefaultIOs(Module(new DifftestMemMP(size, lanes, bits, nr, nw)))
+  def readOnly(size: BigInt, beatBytes: Int): DifftestMem = {
+    setDefaultIOs(Module(new DifftestMemReadOnly(size, beatBytes, 8)))
+  }
+
+  def writeOnly(size: BigInt, beatBytes: Int): DifftestMem = {
+    setDefaultIOs(Module(new DifftestMemWriteOnly(size, beatBytes, 8)))
+  }
 }
+
