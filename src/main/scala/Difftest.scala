@@ -16,11 +16,11 @@
 
 package difftest
 
-import circt.stage.FirtoolOption
 import chisel3._
 import chisel3.reflect.DataMirror
+import circt.stage.FirtoolOption
 import chisel3.util._
-import difftest.common.{DifftestWiring, FileControl}
+import difftest.common.FileControl
 import difftest.gateway.{Gateway, GatewayConfig, GatewayResult}
 import difftest.util.Profile
 
@@ -517,6 +517,7 @@ object DifftestModule {
   private val interfaces = ListBuffer.empty[(DifftestBundle, Int)]
   private val cppExtModules = ListBuffer.empty[(String, String)]
   private val cppExtHeaders = ListBuffer.empty[String]
+  private val nameExcludes = ListBuffer.empty[String]
 
   // Some FIRTOOL options are customized for DiffTest
   def parseArgs(args: Array[String]): (Array[String], Seq[FirtoolOption]) = {
@@ -527,6 +528,9 @@ object DifftestModule {
         case "--difftest-config" :: config :: tail =>
           Gateway.setConfig(config)
           nextOption(args.patch(args.indexOf("--difftest-config"), Nil, 2), tail)
+        case "--difftest-exclude" :: names :: tail =>
+          nameExcludes ++= names.split(",").map(_.trim)
+          nextOption(args.patch(args.indexOf("--difftest-exclude"), Nil, 2), tail)
         case _ :: tail => nextOption(args, tail)
       }
     }
@@ -541,15 +545,16 @@ object DifftestModule {
     delay: Int = 0,
   ): T = {
     val difftest: T = Wire(gen)
-    if (enabled) {
+    val isExcluded = nameExcludes.exists(ex => gen.desiredModuleName.contains(ex))
+    if (enabled && !isExcluded) {
       Gateway(gen, delay) := difftest
+      interfaces.append((gen, delay))
     }
     if (dontCare) {
       difftest := DontCare
       difftest.bits.getValidOption.foreach(_ := false.B)
     }
     dontTouch(difftest)
-    interfaces.append((gen, delay))
     difftest
   }
 
@@ -571,6 +576,8 @@ object DifftestModule {
     Profile.generateJson(cpu, interfaces.toSeq)
     gateway
   }
+
+  def top[T <: Module with HasDiffTestInterfaces](cpuGen: => T): SimTop[T] = new SimTop(cpuGen)
 
   def finish(cpu: String, createTopIO: Boolean, extraMarcos:Seq[String]): GatewayResult = {
     val gateway = Gateway.collect()
@@ -636,9 +643,9 @@ object DifftestModule {
     finish(cpu, createTopIO = true).get
   }
 
-  def finish(cpu: String, extraMarcos:Seq[String]): DifftestTopIO = {
-    finish(cpu, createTopIO = true, extraMarcos).get
-  }
+  // def finish(cpu: String, extraMarcos:Seq[String]): DifftestTopIO = {
+  //   finish(cpu, createTopIO = true, extraMarcos).get
+  // }
 
   def createTopIOs(exit: Option[UInt], step: Option[UInt]): DifftestTopIO = {
     val difftest = IO(new DifftestTopIO)
@@ -654,8 +661,6 @@ object DifftestModule {
     dontTouch(log_enable)
 
     difftest.uart := DontCare
-
-    // require(DifftestWiring.isEmpty, s"pending wires left: ${DifftestWiring.getPending}")
 
     difftest
   }
@@ -837,44 +842,5 @@ object DifftestModule {
     val cpu_s = cpu.replace("-", "_").replace(" ", "").toUpperCase
     difftestV += s"`define CPU_$cpu_s"
     FileControl.write(difftestV, "DifftestMacros.v")
-  }
-}
-
-// Difftest emulator top. Will be created by DifftestModule.finish
-class DifftestTopIO extends Bundle {
-  val exit = Output(UInt(64.W))
-  val step = Output(UInt(64.W))
-  val perfCtrl = new PerfCtrlIO
-  val logCtrl = new LogCtrlIO
-  val uart = new UARTIO
-}
-
-class PerfCtrlIO extends Bundle {
-  val clean = Input(Bool())
-  val dump = Input(Bool())
-}
-
-class LogCtrlIO extends Bundle {
-  val begin = Input(UInt(64.W))
-  val end = Input(UInt(64.W))
-  val level = Input(UInt(64.W)) // a cpp uint
-
-  def enable(timer: UInt): Bool = {
-    val en = WireInit(false.B)
-    en := timer >= begin && timer < end
-    en
-  }
-}
-
-// UART IO, if needed, should be inited in SimTop IO
-// If not needed, just hardwire all output to 0
-class UARTIO extends Bundle {
-  val out = new Bundle {
-    val valid = Output(Bool())
-    val ch = Output(UInt(8.W))
-  }
-  val in = new Bundle {
-    val valid = Output(Bool())
-    val ch = Input(UInt(8.W))
   }
 }

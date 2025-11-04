@@ -121,7 +121,9 @@ private:
 #endif
 
   void fork_child_init();
-  inline bool is_fork_child() { return args.enable_fork? lightsss->is_child(): false; }
+  inline bool is_fork_child() {
+    return lightsss->is_child();
+  }
 
 public:
   Emulator(int argc, const char *argv[]);

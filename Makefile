@@ -22,10 +22,7 @@ SIM_TOP    ?= SimTop
 DESIGN_DIR ?= $(NOOP_HOME)
 NUM_CORES  ?= 1
 
-MFC 	   ?= 1
-
 BUILD_DIR  = $(DESIGN_DIR)/build
-SIM_DIR    = $(DESIGN_DIR)/sim
 
 RTL_DIR = $(BUILD_DIR)/rtl
 RTL_SUFFIX ?= sv
@@ -159,7 +156,7 @@ endif
 # ChiselDB
 WITH_CHISELDB ?= 1
 ifeq ($(WITH_CHISELDB), 1)
-SIM_CXXFILES += $(BUILD_DIR)/chisel_db.cpp
+SIM_CXXFILES += $(BUILD_DIR)/chisel_db.cpp $(BUILD_DIR)/perfCCT.cpp
 SIM_CXXFLAGS += -I$(BUILD_DIR) -DENABLE_CHISEL_DB
 SIM_LDFLAGS  += -lsqlite3
 endif

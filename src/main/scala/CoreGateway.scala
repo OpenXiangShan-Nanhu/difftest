@@ -51,11 +51,11 @@ class CoreGatewayBundle extends Bundle {
   val fpWritebackDelayCnt: Int = 0
   val fpWriteback = Vec(9, new DiffFpWriteback(160))
 
-  val vecWritebackDelayCnt: Int = 0
-  val vecWriteback = Vec(9, new DiffVecWriteback(160))
+  // val vecWritebackDelayCnt: Int = 0
+  // val vecWriteback = Vec(9, new DiffVecWriteback(160))
 
-  val vecV0WritebackDelayCnt: Int = 0
-  val vecV0Writeback = Vec(7, new DiffVecV0Writeback(22))
+  // val vecV0WritebackDelayCnt: Int = 0
+  // val vecV0Writeback = Vec(7, new DiffVecV0Writeback(22))
 
   // NewCSR
   val archEventDelayCnt: Int = 3
@@ -129,9 +129,9 @@ class CoreGatewayBundle extends Bundle {
     Seq((archEvent, archEventDelayCnt)) ++
       instrCommit.map(c => (c, instrCommitDelayCnt)) ++
       intWriteback.map(wb => (wb, intWritebackDelayCnt)) ++
-      fpWriteback.map(wb => (wb, fpWritebackDelayCnt)) ++
-      vecWriteback.map(wb => (wb, vecWritebackDelayCnt)) ++
-      vecV0Writeback.map(wb => (wb, vecV0WritebackDelayCnt)) :+
+      fpWriteback.map(wb => (wb, fpWritebackDelayCnt)) :+
+      // vecWriteback.map(wb => (wb, vecWritebackDelayCnt)) ++
+      // vecV0Writeback.map(wb => (wb, vecV0WritebackDelayCnt)) :+
       (csrState, csrStateDelayCnt) :+
       // (hcsrState, hcsrStateDelayCnt) :+
       (debugMode, debugModeDelayCnt) :+

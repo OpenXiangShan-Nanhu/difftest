@@ -21,7 +21,7 @@ import chisel3.reflect.DataMirror
 import chisel3.util._
 import difftest._
 import difftest.DifftestModule.createCppExtModule
-import difftest.batch.{BatchIO, BatchInfo}
+import difftest.batch.{BatchInfo, BatchIO}
 import difftest.common.FileControl
 import difftest.delta.Delta
 import difftest.gateway.{GatewayConfig, GatewayResult, GatewaySinkControl}
