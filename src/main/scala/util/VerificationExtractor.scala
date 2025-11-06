@@ -32,9 +32,7 @@ object VerificationExtractor {
     val reset = chisel3.compatibility.currentReset
     require(clock.isDefined || index > 0, "Clock must exist for orR sink")
     require(reset.isDefined || index > 0, "Reset must exist for orR sink")
-    chisel3.experimental.annotate(new chisel3.experimental.ChiselAnnotation {
-      override def toFirrtl: Annotation = VerificationExtractorSink(cond.toTarget, index, clock, reset)
-    })
+    chisel3.experimental.annotate()(Seq(VerificationExtractorSink(cond.toTarget, index, clock, reset)))
   }
 
   def sink(cond: chisel3.Bool): Unit = sink(cond, -1)
@@ -68,7 +66,6 @@ class VerificationExtractor extends Phase {
 
   override def transform(annotations: AnnotationSeq): AnnotationSeq = {
     val (c, annos) = annotations.extractCircuit
-    val circuitName = CircuitName(c.main)
 
     // Wiring the sources and perform an orR for it.
     def transformOrRSink(
@@ -83,7 +80,7 @@ class VerificationExtractor extends Phase {
         require(sinkModules.length == 1, "cannot have more than one Verification sink Module")
         require(sinkModules.head.isInstanceOf[Module], "Verification sink must be wrapper in some Module")
         val sinkModule = sinkModules.head.asInstanceOf[Module]
-        val (newSinkModule, orRSinkAnnos) = onOrRSinkModule(sinkModule, sink, circuitName, sources)
+        val (newSinkModule, orRSinkAnnos) = onOrRSinkModule(sinkModule, sink, sources)
         (otherModules :+ newSinkModule, sources.map(_._2) ++ orRSinkAnnos)
       } else {
         (modules, Seq())
@@ -107,7 +104,7 @@ class VerificationExtractor extends Phase {
     // This transform runs only when any sink is defined
     if (sinkAnnos.nonEmpty) {
       // Extract the Verification IRs and convert them into Sources
-      val (trackers, modules) = c.modules.map(m => onSourceModule(m, circuitName)).unzip
+      val (trackers, modules) = c.modules.map(m => onSourceModule(m)).unzip
       // Connect the Sources to the Sink modules
       val (orRSinks, indexSinks) = sinkAnnos.partition(_.index < 0)
       // 1) For orR sink: we use vectored sources.
@@ -124,13 +121,13 @@ class VerificationExtractor extends Phase {
     }
   }
 
-  private def onSourceModule(m: DefModule, c: CircuitName): (Option[AssertionTracker], DefModule) = {
+  private def onSourceModule(m: DefModule): (Option[AssertionTracker], DefModule) = {
     m match {
-      case Module(info, name, ports, body) =>
-        val tracker = new AssertionTracker(ModuleName(name, c))
+      case Module(info, name, public, layers, ports, body) =>
+        val tracker = new AssertionTracker(ModuleName(name))
         val (regDefs, newBody) = onStmt(body)(tracker)
         val bodyTail = tracker.bodyTail.getOrElse(EmptyStmt)
-        (Some(tracker), Module(info, name, ports, Block(regDefs :+ newBody :+ bodyTail)))
+        (Some(tracker), Module(info, name, public, layers, ports, Block(regDefs :+ newBody :+ bodyTail)))
       case other: DefModule => (None, other)
     }
   }
@@ -163,7 +160,6 @@ class VerificationExtractor extends Phase {
   private def onOrRSinkModule(
     m: Module,
     verificationSink: VerificationExtractorSink,
-    circuitName: CircuitName,
     sources: Seq[(Int, SourceAnnotation)],
   ): (DefModule, Seq[SinkAnnotation]) = {
     val target = verificationSink.target.name
@@ -172,7 +168,7 @@ class VerificationExtractor extends Phase {
     val (sinkDefRegs, sinkDefRefs, sinkAnnos) = sources.map { case (w, SourceAnnotation(_, pin)) =>
       val (defReg, ref) = DefRegisterWithRef(NoInfo, pin, UIntType(IntWidth(w)), clock, reset, UIntLiteral(0))
       val conn = Connect(NoInfo, ref, UIntLiteral(0))
-      val anno = SinkAnnotation(ComponentName(pin, ModuleName(m.name, circuitName)), pin)
+      val anno = SinkAnnotation(ComponentName(pin, ModuleName(m.name)), pin)
       (Block(defReg, conn), ref, anno)
     }.unzip3
     val concat = sinkDefRefs.reduceLeft((result: Expression, sinkRef: Reference) =>
