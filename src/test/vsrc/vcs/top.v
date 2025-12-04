@@ -71,6 +71,14 @@ initial begin
       $fatal;
     end
   end
+`elsif XCELIUM
+  `ifdef CONSIDER_FSDB
+    $display("Dumping FSDB Waveform for DEBUG is active !!!");
+    $fsdbAutoSwitchDumpfile(40000,"tb_top.fsdb",60);
+    $fsdbDumpfile("tb_top.fsdb");
+    if ($test$plusargs("mda")) $fsdbDumpMDA();
+    $fsdbDumpvars(0,tb_top.sim);
+  `endif
 `endif
 end
 
