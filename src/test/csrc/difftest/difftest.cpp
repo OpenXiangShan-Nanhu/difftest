@@ -554,7 +554,7 @@ int Difftest::do_instr_commit(int i) {
   state->record_inst(commit_pc, commit_instr, (dut->commit[i].rfwen | dut->commit[i].fpwen | dut->commit[i].vecwen),
                      dut->commit[i].wdest, get_commit_data(i), dut->commit[i].skip != 0, dut->commit[i].special & 0x1,
                      dut->commit[i].lqIdx, dut->commit[i].sqIdx, dut->commit[i].robIdx, dut->commit[i].isLoad,
-                     dut->commit[i].isStore);
+                     dut->commit[i].isStore, dut->commit[i].nFused);
 
 #ifdef FUZZING
   // isExit

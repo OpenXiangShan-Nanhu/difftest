@@ -125,18 +125,19 @@ public:
   uint8_t lqidx;
   uint8_t isStore;
   uint8_t sqidx;
+  uint8_t compressedNum;
 
   InstrTrace(uint64_t pc, uint32_t inst, uint8_t wen, uint8_t dest, uint64_t data, uint8_t lqidx, uint8_t sqidx,
-             uint16_t robidx, uint8_t isLoad, uint8_t isStore, bool skip = false, bool delayed = false)
+             uint16_t robidx, uint8_t isLoad, uint8_t isStore, uint8_t compressedNum, bool skip = false, bool delayed = false)
       : CommitTrace(pc, inst), robidx(robidx), isLoad(isLoad), lqidx(lqidx), isStore(isStore), sqidx(sqidx), wen(wen),
-        dest(dest), data(data), tag(get_tag(skip, delayed)) {}
+      compressedNum(compressedNum), dest(dest), data(data), tag(get_tag(skip, delayed)) {}
   virtual inline const char *get_type() {
     return "commit";
   };
 
 protected:
   void display_custom() {
-    Info(" wen %d dst %02d data %016lx idx %03x", wen, dest, data, robidx);
+    Info(" wen %d dst %02d data %016lx idx %03x compressedNum %03x", wen, dest, data, robidx, (compressedNum + 1));
     if (isLoad) {
       Info(" (%02x)", lqidx);
     }
@@ -193,8 +194,8 @@ public:
     retire_group_queue.push(std::make_pair(pc, count));
   }
   void record_inst(uint64_t pc, uint32_t inst, uint8_t en, uint8_t dest, uint64_t data, bool skip, bool delayed,
-                   uint8_t lqidx, uint8_t sqidx, uint16_t robidx, uint8_t isLoad, uint8_t isStore) {
-    push_back_trace(new InstrTrace(pc, inst, en, dest, data, lqidx, sqidx, robidx, isLoad, isStore, skip, delayed));
+                   uint8_t lqidx, uint8_t sqidx, uint16_t robidx, uint8_t isLoad, uint8_t isStore, uint8_t compressedNum) {
+    push_back_trace(new InstrTrace(pc, inst, en, dest, data, lqidx, sqidx, robidx, isLoad, isStore, skip, delayed, compressedNum));
   };
   void record_exception(uint64_t pc, uint32_t inst, uint64_t cause) {
     push_back_trace(new ExceptionTrace(pc, inst, cause));
