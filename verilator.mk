@@ -125,6 +125,10 @@ VERILATOR_FLAGS =                   \
   --output-split 30000              \
   --output-split-cfuncs 30000       \
   -I$(RTL_DIR)                      \
+  -I$(RTL_DIR)/verification			\
+  -I$(RTL_DIR)/verification/assert  \
+  -I$(RTL_DIR)/verification/assume  \
+  -I$(RTL_DIR)/verification/cover   \
   -I$(GEN_VSRC_DIR)                 \
   -CFLAGS "$(EMU_CXXFLAGS)"         \
   -LDFLAGS "$(EMU_LDFLAGS)"         \
@@ -133,7 +137,10 @@ VERILATOR_FLAGS =                   \
   -o $(abspath $(EMU))              \
   $(VEXTRA_FLAGS)
 
-EMU_DEPS  := $(SIM_VSRC) $(EMU_CXXFILES)
+VERIFICATION_DIR = $(RTL_DIR)/verification
+VERIFICATION_FILE = $(shell find $(RTL_DIR)/verification -name "*.sv")
+EMU_FILELIST = $(EMU_DIR)/emu_filelist.tmp
+EMU_DEPS: $(SIM_VSRC) $(EMU_CXXFILES) $(VERIFICATION_FILE)
 EMU_HEADERS := $(shell find $(EMU_CSRC_DIR) -name "*.h")     \
                $(shell find $(SIM_CSRC_DIR) -name "*.h")     \
                $(shell find $(DIFFTEST_CSRC_DIR) -name "*.h")
@@ -149,7 +156,11 @@ endif
 	@mkdir -p $(@D)
 	@echo -e "\n[verilator] Generating C++ files..." >> $(TIMELOG)
 	@date -R | tee -a $(TIMELOG)
-	$(TIME_CMD) $(VERILATOR) $(VERILATOR_FLAGS) --Mdir $(@D) $^ $(EMU_DEPS)
+	rm -f $(EMU_FILELIST)
+	@$(foreach file, $(SIM_VSRC), echo "$(file)" >> $(EMU_FILELIST);)
+	@$(foreach file, $(EMU_CXXFILES), echo "$(file)" >> $(EMU_FILELIST);)
+	find $(VERIFICATION_DIR) -name "*.sv" >> $(EMU_FILELIST)
+	$(TIME_CMD) $(VERILATOR) $(VERILATOR_FLAGS) --Mdir $(@D) $^ -f $(EMU_FILELIST)
 	@sed -i -e 's/$(subst /,\/,$(NOOP_HOME))/$$(NOOP_HOME)/g' \
 	       -e '/^default:/i\NOOP_HOME ?= $(subst /,\/,$(NOOP_HOME))\n' $@
 ifneq ($(VERILATOR_5_000),1)
