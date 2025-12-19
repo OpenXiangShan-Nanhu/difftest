@@ -79,6 +79,9 @@ VCS_FLAGS += -full64 +v2k -timescale=1ns/10ps -sverilog -debug_access+all +lint=
 VCS_FLAGS += -lca -fgp -kdb +nospecify +notimingcheck
 VCS_FLAGS += -Mdir=$(VCS_BUILD_DIR) -j200
 VCS_FLAGS += +define+VCS
+VCS_FLAGS += '+define+layer\$$Verification\$$Assert\$$Temporal'
+VCS_FLAGS += '+define+layer\$$Verification\$$Assume\$$Temporal'
+VCS_FLAGS += '+define+layer\$$Verification\$$Cover\$$Temporal'
 ifeq ($(ENABLE_XPROP),1)
 VCS_FLAGS += -xprop
 else
@@ -102,6 +105,10 @@ VCS_FLAGS += +define+RANDOMIZE_DELAY=1
 VCS_FLAGS += +define+UNIT_DELAY +define+no_warning
 # search build for other missing verilog files
 VCS_FLAGS += -y $(RTL_DIR) +libext+.v +libext+.sv
+VCS_FLAGS += +incdir+$(RTL_DIR)/verification
+VCS_FLAGS += +incdir+$(RTL_DIR)/verification/assert
+VCS_FLAGS += +incdir+$(RTL_DIR)/verification/assume
+VCS_FLAGS += +incdir+$(RTL_DIR)/verification/cover
 # search generated-src for verilog included files
 VCS_FLAGS += +incdir+$(GEN_VSRC_DIR)
 # C++ flags
@@ -111,9 +118,16 @@ VCS_FLAGS += $(EXTRA)
 
 VCS_VSRC_DIR = $(abspath ./src/test/vsrc/vcs)
 VCS_VFILES   = $(SIM_VSRC) $(shell find $(VCS_VSRC_DIR) -name "*.v" -or -name "*.sv")
-$(VCS_TARGET): $(SIM_TOP_V) $(VCS_CXXFILES) $(VCS_VFILES)
+VCS_VERFILES = $(shell find $(RTL_DIR)/verification -name "*.sv")
+VCS_FILELIST = $(VCS_DIR)/vcs_filelist.tmp
+
+$(VCS_TARGET): $(SIM_TOP_V) $(VCS_CXXFILES) $(VCS_VFILES) $(VCS_VERFILES)
 	$(shell if [ ! -e $(VCS_DIR)/comp ];then mkdir -p $(VCS_DIR)/comp; fi)
-	$(VCS) $(VCS_FLAGS) $(SIM_TOP_V) $(VCS_CXXFILES) $(VCS_VFILES)
+	rm -f $(VCS_FILELIST)
+	@$(foreach file, $(VCS_CXXFILES), echo "$(file)" >> $(VCS_FILELIST);)
+	@$(foreach file, $(VCS_VFILES), echo "$(file)" >> $(VCS_FILELIST);)
+	find $(RTL_DIR)/verification -name "*.sv" >> $(VCS_FILELIST)
+	$(VCS) $(VCS_FLAGS) $(SIM_TOP_V) -f $(VCS_FILELIST)
 ifeq ($(VCS),verilator)
 	$(MAKE) -s -C $(VCS_BUILD_DIR) -f V$(VCS_TOP).mk
 endif
