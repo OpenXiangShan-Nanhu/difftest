@@ -154,7 +154,6 @@ RUN_OPTS += +no-diff
 endif
 
 RUN_OPTS += -no_save -assert finish_maxfail=30 -assert global_finish_maxfail=10000
-RUN_OPTS += -fgp=num_threads:4,num_fsdb_threads:4
 
 simv-run:
 	$(shell if [ ! -e $(VCS_RUN_DIR) ]; then mkdir -p $(VCS_RUN_DIR); fi)
