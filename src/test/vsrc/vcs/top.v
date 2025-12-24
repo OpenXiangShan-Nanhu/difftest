@@ -63,7 +63,7 @@ initial begin
       $fsdbAutoSwitchDumpfile(40000,"tb_top.fsdb",60);
       $fsdbDumpfile("tb_top.fsdb");
       if ($test$plusargs("mda")) $fsdbDumpMDA();
-      $fsdbDumpvars(0,tb_top.sim);
+      $fsdbDumpvars(0,tb_top);
     end
 `endif
     else begin
