@@ -992,7 +992,7 @@ int Difftest::do_refill_check(int cacheid) {
   char flag_buf[512];
   uint64_t realpaddr = dut_refill->addr;
   dut_refill->addr = dut_refill->addr - dut_refill->addr % 64;
-  if (dut_refill->addr != last_valid_addr) {
+  if (true) {
     last_valid_addr = dut_refill->addr;
     if (!in_pmem(dut_refill->addr)) {
       // speculated illegal mem access should be ignored
