@@ -231,26 +231,22 @@ public:
 
   inline void skip_one(bool isRVC, bool rfwen, bool fpwen, bool vecwen, uint32_t wdest, uint64_t wdata) {
     bool wen = rfwen | fpwen;
-    if (ref_skip_one) {
-      ref_skip_one(isRVC, wen, wdest, wdata);
-    } else {
-      sync();
-      pc += isRVC ? 2 : 4;
+    sync();
+    pc += isRVC ? 2 : 4;
 
-      if (rfwen)
-        regs_int.value[wdest] = wdata;
+    if (rfwen)
+      regs_int.value[wdest] = wdata;
 #ifdef CONFIG_DIFFTEST_ARCHFPREGSTATE
-      if (fpwen)
-        regs_fp.value[wdest] = wdata;
+    if (fpwen)
+      regs_fp.value[wdest] = wdata;
 #endif // CONFIG_DIFFTEST_ARCHFPREGSTATE
 #ifdef CONFIG_DIFFTEST_ARCHVECREGSTATE
       // TODO: vec skip is not supported at this time.
-      if (vecwen)
-        assert(0);
+    if (vecwen)
+      assert(0);
 #endif // CONFIG_DIFFTEST_ARCHVECREGSTATE
 
-      sync(true);
-    }
+    sync(true);
   }
 
   inline void trigger_nmi(bool hasNMI) {
