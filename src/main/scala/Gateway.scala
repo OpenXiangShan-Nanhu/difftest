@@ -215,7 +215,7 @@ object Gateway {
 
   def lntop_collect(instanceSeq: Seq[(DifftestBundle, Int)]): GatewayResult = {
     val difftest_instances = if(config.needEndpoint) instanceSeq else instanceWithDelay.toSeq
-    println(s"[lntop_collect] instanceSeq: ${difftest_instances}")
+    println(s"[lntop_collect] instanceSeq: ${difftest_instances.mkString("{\n", "\n  ", "}")}")
     val exit = Option.when(config.exitOnAssertions) {
       val asserted = RegInit(false.B)
       VerificationExtractor.sink(asserted)
