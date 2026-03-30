@@ -145,7 +145,7 @@ public:
   f(ref_skip_one, difftest_skip_one, void, bool, bool, uint32_t, uint64_t)                                  \
   f(ref_guided_exec, difftest_guided_exec, void, void*)                                                     \
   f(ref_memcpy_init, difftest_memcpy_init, void, uint64_t, void*, size_t, bool)                             \
-  f(raise_nmi_intr, difftest_raise_nmi_intr, void, bool)                                                    \
+  f(raise_nmi_intr, difftest_raise_nmi_intr, void, uint64_t)                                                \
   f(ref_virtual_interrupt_is_hvictl_inject, difftest_virtual_interrupt_is_hvictl_inject, void, bool)        \
   f(ref_interrupt_delegate, difftest_interrupt_delegate, void, void*)                                    \
   f(disambiguation_state, difftest_disambiguation_state, int, )                                             \
@@ -249,9 +249,9 @@ public:
     sync(true);
   }
 
-  inline void trigger_nmi(bool hasNMI) {
+  inline void trigger_nmi(bool hasNMI, uint64_t rnmi_no) {
     if (raise_nmi_intr) {
-      raise_nmi_intr(hasNMI);
+      raise_nmi_intr(rnmi_no);
     } else {
       Info("No NMI interrupt is triggered.\n");
     }
