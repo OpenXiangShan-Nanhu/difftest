@@ -606,7 +606,7 @@ int Difftest::do_instr_commit(int i) {
   if (dut->commit[i].skip || (DEBUG_MODE_SKIP(dut->commit[i].valid, dut->commit[i].pc, dut->commit[i].inst))) {
     // We use the physical register file to get wdata
     proxy->skip_one(dut->commit[i].isRVC, (dut->commit[i].rfwen && dut->commit[i].wdest != 0), dut->commit[i].fpwen,
-                    dut->commit[i].vecwen, dut->commit[i].wdest, get_commit_data(i));
+                    dut->commit[i].vecwen, dut->commit[i].wdest, get_commit_data(i), dut);
     return 0;
   }
 

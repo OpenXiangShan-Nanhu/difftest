@@ -229,7 +229,8 @@ public:
   int compare(DiffTestState *dut);
   void display(DiffTestState *dut = nullptr);
 
-  inline void skip_one(bool isRVC, bool rfwen, bool fpwen, bool vecwen, uint32_t wdest, uint64_t wdata) {
+  inline void skip_one(bool isRVC, bool rfwen, bool fpwen, bool vecwen, uint32_t wdest, uint64_t wdata,
+                       DiffTestState *dut) {
     bool wen = rfwen | fpwen;
     sync();
     pc += isRVC ? 2 : 4;
@@ -237,8 +238,10 @@ public:
     if (rfwen)
       regs_int.value[wdest] = wdata;
 #ifdef CONFIG_DIFFTEST_ARCHFPREGSTATE
-    if (fpwen)
+    if (fpwen) {
       regs_fp.value[wdest] = wdata;
+      memcpy(&csr, &dut->csr, sizeof(csr));
+    }
 #endif // CONFIG_DIFFTEST_ARCHFPREGSTATE
 #ifdef CONFIG_DIFFTEST_ARCHVECREGSTATE
       // TODO: vec skip is not supported at this time.
