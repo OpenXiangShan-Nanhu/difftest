@@ -70,7 +70,8 @@ static const char *regs_name_hcsr[] = {
   "v",
   "mtval2", "mtinst", "hstatus", "hideleg", "hedeleg",
   "hcounteren", "htval", "htinst", "hgatp", "vsstatus",
-  "vstvec","vsepc", "vscause", "vstval", "vsatp", "vsscratch"
+  "vstvec","vsepc", "vscause", "vstval", "vsatp", "vsscratch",
+  "mstateen0", "hstateen0"
 };
 
 static const char *regs_name_fp[] = {
