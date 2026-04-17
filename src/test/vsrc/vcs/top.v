@@ -167,4 +167,33 @@ DifftestEndpoint difftest(
   .io_simFinal(io_simFinal)
 );
 
+wire        wb_valid;
+assign wb_valid = sim.core.backend.dataPath.io_intWriteback_0_en;
+reg [63:0] stuck_limit;
+
+reg [63:0] n_cycles;
+reg [63:0] stuck_timer;
+always @(posedge clock) begin
+  if (reset) begin
+    n_cycles <= 64'h0;
+    stuck_timer <= 64'h0;
+    stuck_limit <= 64'h1000; // default 4096 cycles
+  end
+  else begin
+    n_cycles <= n_cycles + 64'h1;
+
+    // stuck check
+    if (wb_valid)
+      stuck_timer <= 0;
+    else
+      stuck_timer <= stuck_timer + 64'h1;
+
+    if (stuck_limit > 0 && stuck_timer >= stuck_limit) begin
+      $display("No data writeback for 4096 cycle", stuck_limit);
+      $fatal;
+    end
+  end
+end
+
+
 endmodule
