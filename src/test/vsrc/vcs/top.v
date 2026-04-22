@@ -167,6 +167,8 @@ DifftestEndpoint difftest(
   .io_simFinal(io_simFinal)
 );
 
+
+// 临时检查1：卡死检查，超过4096周期没有数据写回就报错
 wire        wb_valid;
 assign wb_valid = sim.core.backend.dataPath.io_intWriteback_0_en;
 reg [63:0] stuck_limit;
@@ -189,11 +191,18 @@ always @(posedge clock) begin
       stuck_timer <= stuck_timer + 64'h1;
 
     if (stuck_limit > 0 && stuck_timer >= stuck_limit) begin
-      $display("No data writeback for 4096 cycle", stuck_limit);
+      $display("\033[31mNo data writeback for 4096 cycle\033[0m", stuck_limit);
       $fatal;
     end
   end
 end
 
+// 临时检查2：5006b指令检查，程序执行完成
+always @(posedge clock) begin
+  if (sim.core.backend.io_xsTrapFinish) begin
+    $display("\033[32mInstruction 0x5006b executed, program finished\033[0m");
+    $finish;
+  end
+end
 
 endmodule
