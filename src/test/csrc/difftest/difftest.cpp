@@ -1019,10 +1019,10 @@ int Difftest::do_refill_check(int cacheid) {
           update_goldenmem(dut_refill->addr, dut_refill->data, 0xffffffffffffffffUL, 64);
           proxy->ref_memcpy(dut_refill->addr, dut_refill->data, 64, DUT_TO_REF);
 
-          if(dut_refill->hasStoreData){
-            Info("\n store has data, update goldenmem");
-            update_goldenmem(dut_refill->addr, dut_refill->storeData, dut_refill->storeMask, 64);
-          }
+          // if(dut_refill->hasStoreData){
+          //   Info("\n store has data, update goldenmem");
+          //   update_goldenmem(dut_refill->addr, dut_refill->storeData, dut_refill->storeMask, 64);
+          // }
 
           uint64_splitter data_splitter;
           uint64_splitter mask_splitter;
