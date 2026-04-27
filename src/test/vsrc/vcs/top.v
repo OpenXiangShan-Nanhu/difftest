@@ -198,11 +198,11 @@ always @(posedge clock) begin
 end
 
 // 临时检查2：5006b指令检查，程序执行完成
-always @(posedge clock) begin
-  if (sim.core.backend.io_xsTrapFinish) begin
-    $display("\033[32mInstruction 0x5006b executed, program finished\033[0m");
-    $finish;
-  end
-end
+// always @(posedge clock) begin
+//   if (sim.core.backend.io_xsTrapFinish) begin
+//     $display("\033[32mInstruction 0x5006b executed, program finished\033[0m");
+//     $finish;
+//   end
+// end
 
 endmodule
