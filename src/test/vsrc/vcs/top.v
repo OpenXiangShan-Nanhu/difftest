@@ -179,7 +179,7 @@ always @(posedge clock) begin
   if (reset) begin
     n_cycles <= 64'h0;
     stuck_timer <= 64'h0;
-    stuck_limit <= 64'h1000; // default 4096 cycles
+    stuck_limit <= 64'h2000; // default 8192 cycles
   end
   else begin
     n_cycles <= n_cycles + 64'h1;
@@ -191,7 +191,7 @@ always @(posedge clock) begin
       stuck_timer <= stuck_timer + 64'h1;
 
     if (stuck_limit > 0 && stuck_timer >= stuck_limit) begin
-      $display("\033[31mNo data writeback for 4096 cycle\033[0m", stuck_limit);
+      $display("\033[31mNo data writeback for 8192 cycle\033[0m", stuck_limit);
       $fatal;
     end
   end
