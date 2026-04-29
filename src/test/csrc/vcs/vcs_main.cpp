@@ -29,9 +29,6 @@
 #include "svdpi.h"
 #include <common.h>
 #include <locale.h>
-#ifdef CONFIG_DIFFTEST_PERFCNT
-#include "perf.h"
-#endif // CONFIG_DIFFTEST_PERFCNT
 #include "remote_bitbang.h"
 
 static bool has_reset = false;
@@ -360,19 +357,6 @@ extern "C" uint8_t simv_nstep(uint8_t step) {
     return 0;
 #endif // CONFIG_NO_DIFFTEST
 #endif // CONFIG_DIFFTEST_DEFERRED_RESULT
-
-#ifdef CONFIG_DIFFTEST_PERFCNT
-#ifndef CONFIG_DIFFTEST_INTERNAL_STEP
-  difftest_calls[perf_simv_nstep]++;
-  difftest_bytes[perf_simv_nstep] += 1;
-#endif // CONFIG_DIFFTEST_INTERNAL_STEP
-#endif // CONFIG_DIFFTEST_PERFCNT
-
-#ifndef CONFIG_NO_DIFFTEST
-#if CONFIG_DIFFTEST_ZONESIZE > 1
-  difftest_switch_zone();
-#endif // CONFIG_DIFFTEST_ZONESIZE
-#endif // CONFIG_NO_DIFFTEST
 
   for (int i = 0; i < step; i++) {
     int ret = simv_step();

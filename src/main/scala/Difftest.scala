@@ -755,21 +755,6 @@ object DifftestModule {
          |extern void diffstate_buffer_init();
          |extern void diffstate_buffer_free();
          |""".stripMargin
-    difftestCpp +=
-      s"""
-         |#ifdef CONFIG_DIFFTEST_PERFCNT
-         |void diffstate_perfcnt_init();
-         |void diffstate_perfcnt_finish(long long msec);
-         |#endif // CONFIG_DIFFTEST_PERFCNT
-         |""".stripMargin
-    difftestCpp +=
-      s"""
-         |#ifdef CONFIG_DIFFTEST_QUERY
-         |void difftest_query_init();
-         |void difftest_query_step();
-         |void difftest_query_finish();
-         |#endif // CONFIG_DIFFTEST_QUERY
-         |""".stripMargin
     difftestCpp += "#endif // __DIFFSTATE_H__"
     difftestCpp += ""
     FileControl.write(difftestCpp, "diffstate.h")

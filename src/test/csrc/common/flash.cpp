@@ -17,9 +17,6 @@
 #include "flash.h"
 #include "common.h"
 #include <sys/mman.h>
-#ifdef CONFIG_DIFFTEST_PERFCNT
-#include "perf.h"
-#endif // CONFIG_DIFFTEST_PERFCNT
 
 flash_device_t flash_dev = {
   nullptr,                // base
@@ -29,10 +26,6 @@ flash_device_t flash_dev = {
 };
 
 void flash_read(uint32_t addr, uint64_t *data) {
-#ifdef CONFIG_DIFFTEST_PERFCNT
-  difftest_calls[perf_flash_read]++;
-  difftest_bytes[perf_flash_read] += 12;
-#endif // CONFIG_DIFFTEST_PERFCNT
   if (!flash_dev.base) {
     return;
   }

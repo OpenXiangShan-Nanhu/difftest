@@ -22,7 +22,6 @@
 #include <functional>
 #include <iostream>
 #include <memory>
-#include <set>
 #include <unordered_map>
 #include <vector>
 
@@ -95,14 +94,9 @@ private:
 
 protected:
   uint64_t memory_size; // in bytes
-#ifdef FUZZING
-  std::set<uint64_t> accessed_indices;
-#endif
   InputReader *createInputReader(const char *image);
   void inline on_access(uint64_t index) {
-#ifdef FUZZING
-    accessed_indices.insert(index);
-#endif
+    (void)index;
   }
 
 public:

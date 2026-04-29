@@ -52,7 +52,7 @@ case class GatewayConfig(
   isFPGA: Boolean = false,
   isGSIM: Boolean = false,
 ) {
-  def dutZoneSize: Int = if (hasDutZone) 2 else 1
+  def dutZoneSize: Int = 1
   def dutZoneWidth: Int = log2Ceil(dutZoneSize)
   def dutBufLen: Int = if (isBatch) batchSize else 1
   def maxStep: Int = if (isBatch) batchSize else 1
@@ -71,30 +71,19 @@ case class GatewayConfig(
   def cppMacros: Seq[String] = {
     val macros = ListBuffer.empty[String]
     macros += s"CONFIG_DIFFTEST_${style.toUpperCase}"
-    macros += s"CONFIG_DIFFTEST_ZONESIZE $dutZoneSize"
     macros += s"CONFIG_DIFFTEST_BUFLEN $dutBufLen"
-    if (isBatch)
-      macros ++= Seq(
-        "CONFIG_DIFFTEST_BATCH",
-        s"CONFIG_DIFFTEST_BATCH_SIZE ${batchSize}",
-        s"CONFIG_DIFFTEST_BATCH_BYTELEN ${batchArgByteLen._1 + batchArgByteLen._2}",
-      )
-    if (isSquash) macros ++= Seq("CONFIG_DIFFTEST_SQUASH", s"CONFIG_DIFFTEST_SQUASH_STAMPSIZE 4096") // Stamp Width 12
     if (isDelta) macros += "CONFIG_DIFFTEST_DELTA"
-    if (hasReplay) macros ++= Seq("CONFIG_DIFFTEST_REPLAY", s"CONFIG_DIFFTEST_REPLAY_SIZE ${replaySize}")
     if (hasDeferredResult) macros += "CONFIG_DIFFTEST_DEFERRED_RESULT"
     if (hasInternalStep) macros += "CONFIG_DIFFTEST_INTERNAL_STEP"
-    if (traceDump || traceLoad) macros += "CONFIG_DIFFTEST_IOTRACE"
     macros.toSeq
   }
   def vMacros: Seq[String] = {
     val macros = ListBuffer.empty[String]
     macros += s"CONFIG_DIFFTEST_STEPWIDTH ${stepWidth}"
-    macros += s"CONFIG_DIFFTEST_BATCH_IO_WITDH ${batchBitWidth}"
+    macros += s"CONFIG_DIFFTEST_IO_BATCH_WIDTH ${batchBitWidth}"
     if (isNonBlock) macros += "CONFIG_DIFFTEST_NONBLOCK"
     if (hasDeferredResult) macros += "CONFIG_DIFFTEST_DEFERRED_RESULT"
     if (hasInternalStep) macros += "CONFIG_DIFFTEST_INTERNAL_STEP"
-    if (traceDump || traceLoad) macros += "CONFIG_DIFFTEST_IOTRACE"
     macros.toSeq
   }
   def check(): Unit = {
@@ -143,7 +132,7 @@ object Gateway {
       case 'E' => config = config.copy(hasGlobalEnable = true)
       case 'S' => config = config.copy(isSquash = true)
       case 'R' => config = config.copy(hasReplay = true)
-      case 'Z' => config = config.copy(hasDutZone = true)
+      case 'Z' => println("Gateway Config Z is ignored because DiffTest zone size is fixed to 1")
       case 'D' => config = config.copy(isDelta = true)
       case 'B' => config = config.copy(isBatch = true)
       case 'I' => config = config.copy(hasInternalStep = true)

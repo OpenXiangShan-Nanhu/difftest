@@ -20,9 +20,6 @@
 #include "elfloader.h"
 #include <iostream>
 #include <sys/mman.h>
-#ifdef CONFIG_DIFFTEST_PERFCNT
-#include "perf.h"
-#endif // CONFIG_DIFFTEST_PERFCNT
 
 // #define TLB_UNITTEST
 
@@ -238,17 +235,6 @@ InputReader *SimMemory::createInputReader(const char *image) {
 }
 
 void SimMemory::display_stats() {
-#ifdef FUZZING
-  uint64_t req_in_range = 0;
-  auto const img_indices = get_img_size() / sizeof(uint64_t);
-  for (auto index: accessed_indices) {
-    if (index < img_indices) {
-      req_in_range++;
-    }
-  }
-  auto req_all = accessed_indices.size();
-  printf("SimMemory: img_size %lu, req_all %lu, req_in_range %lu\n", img_indices, req_all, req_in_range);
-#endif // FUZZING
 }
 
 MmapMemory::MmapMemory(const char *image, uint64_t n_bytes) : SimMemory(n_bytes) {
@@ -304,10 +290,6 @@ MmapMemory::~MmapMemory() {
 }
 
 uint64_t difftest_ram_read(uint64_t rIdx) {
-#ifdef CONFIG_DIFFTEST_PERFCNT
-  difftest_calls[perf_difftest_ram_read]++;
-  difftest_bytes[perf_difftest_ram_read] += 8;
-#endif // CONFIG_DIFFTEST_PERFCNT
   if (!simMemory)
     return 0;
 #ifdef PMEM_CHECK
@@ -322,10 +304,6 @@ uint64_t difftest_ram_read(uint64_t rIdx) {
 }
 
 void difftest_ram_write(uint64_t wIdx, uint64_t wdata, uint64_t wmask) {
-#ifdef CONFIG_DIFFTEST_PERFCNT
-  difftest_calls[perf_difftest_ram_write]++;
-  difftest_bytes[perf_difftest_ram_write] += 24;
-#endif // CONFIG_DIFFTEST_PERFCNT
   if (simMemory) {
     if (!simMemory->in_range_u64(wIdx)) {
       printf("ERROR: ram wIdx = 0x%lx out of bound!\n", wIdx);

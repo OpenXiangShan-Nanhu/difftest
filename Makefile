@@ -92,13 +92,6 @@ SIM_CXXFLAGS += -DCONFIG_NO_DIFFTEST
 else
 SIM_CXXFILES += $(DIFFTEST_CXXFILES)
 SIM_CXXFLAGS += -I$(DIFFTEST_CSRC_DIR)
-ifeq ($(DIFFTEST_PERFCNT), 1)
-SIM_CXXFLAGS += -DCONFIG_DIFFTEST_PERFCNT
-endif
-ifeq ($(DIFFTEST_QUERY), 1)
-SIM_CXXFLAGS += -DCONFIG_DIFFTEST_QUERY
-SIM_LDFLAGS  += -lsqlite3
-endif
 endif
 
 # ChiselDB
@@ -208,18 +201,6 @@ FUZZER_LIB   = $(shell echo $$$(XFUZZ_HOME_VAR))/target/release/libfuzzer.a
 SIM_LDFLAGS += -lrt -lpthread
 endif
 
-# Link fuzzer libraries
-ifneq ($(FUZZER_LIB), )
-SIM_CXXFLAGS += -DFUZZER_LIB
-SIM_LDFLAGS  += $(abspath $(FUZZER_LIB))
-FUZZING       = 1
-endif
-
-# Fuzzer support
-ifeq ($(FUZZING),1)
-SIM_CXXFLAGS += -DFUZZING
-endif
-
 # FIRRTL Coverage support
 ifneq ($(FIRRTL_COVER),)
 SIM_CXXFLAGS += -DFIRRTL_COVER
@@ -229,10 +210,6 @@ endif
 ifneq ($(LLVM_COVER),)
 SIM_CXXFLAGS += -DLLVM_COVER
 SIM_LDFLAGS  += -fsanitize-coverage=trace-pc-guard -fsanitize-coverage=pc-table
-endif
-
-ifeq ($(IOTRACE_ZSTD),1)
-SIM_CXXFLAGS += -DCONFIG_IOTRACE_ZSTD
 endif
 
 # Do not allow compiler warnings

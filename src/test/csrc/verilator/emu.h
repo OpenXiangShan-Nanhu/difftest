@@ -146,11 +146,7 @@ public:
     return args;
   }
   bool is_good_trap() {
-#ifdef FUZZING
-    return !(trapCode == STATE_ABORT);
-#else
     return trapCode == STATE_GOODTRAP || trapCode == STATE_LIMIT_EXCEEDED || trapCode == STATE_SIM_EXIT;
-#endif
   };
   int get_trapcode() {
     return trapCode;

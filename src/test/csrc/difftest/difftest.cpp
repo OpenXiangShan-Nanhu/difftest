@@ -21,16 +21,6 @@
 #include "goldenmem.h"
 #include "ram.h"
 #include "spikedasm.h"
-#include <cstdio>
-#if defined(CONFIG_DIFFTEST_SQUASH) && !defined(CONFIG_PLATFORM_FPGA)
-#include "svdpi.h"
-#endif // CONFIG_DIFFTEST_SQUASH && !CONFIG_PLATFORM_FPGA
-#ifdef CONFIG_DIFFTEST_PERFCNT
-#include "perf.h"
-#endif // CONFIG_DIFFTEST_PERFCNT
-#ifdef CONFIG_DIFFTEST_QUERY
-#include "query.h"
-#endif // CONFIG_DIFFTEST_QUERY
 
 Difftest **difftest = NULL;
 
@@ -40,15 +30,6 @@ typedef union {
 } uint64_splitter;
 
 int difftest_init() {
-#ifdef CONFIG_DIFFTEST_PERFCNT
-  difftest_perfcnt_init();
-#endif // CONFIG_DIFFTEST_PERFCNT
-#ifdef CONFIG_DIFFTEST_IOTRACE
-  difftest_iotrace_init();
-#endif // CONFIG_DIFFTEST_IOTRACE
-#ifdef CONFIG_DIFFTEST_QUERY
-  difftest_query_init();
-#endif // CONFIG_DIFFTEST_QUERY
   diffstate_buffer_init();
   difftest = new Difftest *[NUM_CORES];
   for (int i = 0; i < NUM_CORES; i++) {
@@ -78,9 +59,6 @@ int difftest_state() {
 }
 
 int difftest_nstep(int step, bool enable_diff) {
-#if CONFIG_DIFFTEST_ZONESIZE > 1
-  difftest_switch_zone();
-#endif // CONFIG_DIFFTEST_ZONESIZE
   for (int i = 0; i < step; i++) {
     if (enable_diff) {
       if (difftest_step())
@@ -109,9 +87,6 @@ void difftest_set_dut() {
 }
 int difftest_step() {
   difftest_set_dut();
-#if defined(CONFIG_DIFFTEST_QUERY) && !defined(CONFIG_DIFFTEST_BATCH)
-  difftest_query_step();
-#endif // CONFIG_DIFFTEST_QUERY
   for (int i = 0; i < NUM_CORES; i++) {
     int ret = difftest[i]->step();
     if (ret) {
@@ -143,16 +118,6 @@ void difftest_trace_write(int step) {
 }
 
 void difftest_finish() {
-#ifdef CONFIG_DIFFTEST_PERFCNT
-  uint64_t cycleCnt = difftest[0]->get_trap_event()->cycleCnt;
-  difftest_perfcnt_finish(cycleCnt);
-#endif // CONFIG_DIFFTEST_PERFCNT
-#ifdef CONFIG_DIFFTEST_IOTRACE
-  difftest_iotrace_free();
-#endif // CONFIG_DIFFTEST_IOTRACE
-#ifdef CONFIG_DIFFTEST_QUERY
-  difftest_query_finish();
-#endif // CONFIG_DIFFTEST_QUERY
   diffstate_buffer_free();
   for (int i = 0; i < NUM_CORES; i++) {
     delete difftest[i];
@@ -161,45 +126,8 @@ void difftest_finish() {
   difftest = NULL;
 }
 
-#if defined(CONFIG_DIFFTEST_SQUASH) && !defined(CONFIG_PLATFORM_FPGA)
-svScope squashScope;
-void set_squash_scope() {
-  squashScope = svGetScope();
-}
-
-extern "C" void set_squash_enable(int enable);
-void difftest_squash_enable(int enable) {
-  if (squashScope == NULL) {
-    printf("Error: Could not retrieve squash scope, set first\n");
-    assert(squashScope);
-  }
-  svSetScope(squashScope);
-  set_squash_enable(enable);
-}
-#endif // CONFIG_DIFFTEST_SQUASH && !CONFIG_PLATFORM_FPGA
-
-#ifdef CONFIG_DIFFTEST_REPLAY
-svScope replayScope;
-void set_replay_scope() {
-  replayScope = svGetScope();
-}
-
-extern "C" void set_replay_head(int head);
-void difftest_replay_head(int head) {
-  if (replayScope == NULL) {
-    printf("Error: Could not retrieve replay scope, set first\n");
-    assert(replayScope);
-  }
-  svSetScope(replayScope);
-  set_replay_head(head);
-}
-#endif // CONFIG_DIFFTEST_REPLAY
-
 Difftest::Difftest(int coreid) : id(coreid) {
   state = new DiffState();
-#ifdef CONFIG_DIFFTEST_REPLAY
-  state_ss = (DiffState *)malloc(sizeof(DiffState));
-#endif // CONFIG_DIFFTEST_REPLAY
 }
 
 Difftest::~Difftest() {
@@ -208,12 +136,6 @@ Difftest::~Difftest() {
   if (proxy) {
     delete proxy;
   }
-#ifdef CONFIG_DIFFTEST_REPLAY
-  free(state_ss);
-  if (proxy_reg_ss) {
-    free(proxy_reg_ss);
-  }
-#endif // CONFIG_DIFFTEST_REPLAY
 }
 
 #if defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_ARCHVECREGSTATE)
@@ -225,98 +147,10 @@ void Difftest::update_nemuproxy(int coreid, size_t ram_size = 0) {
 #if defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_ARCHVECREGSTATE)
   enable_vec_load_goldenmem_check = proxy->check_ref_vec_load_goldenmem();
 #endif // CONFIG_DIFFTEST_LOADEVENT && CONFIG_DIFFTEST_ARCHVECREGSTATE
-#ifdef CONFIG_DIFFTEST_REPLAY
-  proxy_reg_size = proxy->get_reg_size();
-  proxy_reg_ss = (uint8_t *)malloc(proxy_reg_size);
-#endif // CONFIG_DIFFTEST_REPLAY
 }
-
-#ifdef CONFIG_DIFFTEST_REPLAY
-bool Difftest::can_replay() {
-  auto info = dut->trace_info;
-  return info.valid && !info.in_replay && info.trace_size > 1;
-}
-
-bool Difftest::in_replay_range() {
-  auto info = dut->trace_info;
-  if (!info.valid || !info.in_replay || info.trace_size > 1)
-    return false;
-  int pos = info.trace_head;
-  int head = replay_status.trace_head;
-  int tail = (head + replay_status.trace_size - 1) % CONFIG_DIFFTEST_REPLAY_SIZE;
-  if (tail < head) { // consider ring queue
-    return (pos <= tail) || (pos >= head);
-  } else {
-    return (pos >= head) && (pos <= tail);
-  }
-}
-
-void Difftest::replay_snapshot() {
-  memcpy(state_ss, state, sizeof(DiffState));
-  memcpy(proxy_reg_ss, &proxy->regs_int, proxy_reg_size);
-  proxy->ref_csrcpy(squash_csr_buf, REF_TO_DUT);
-  proxy->ref_store_log_reset();
-  proxy->set_store_log(true);
-  goldenmem_store_log_reset();
-  goldenmem_set_store_log(true);
-}
-
-void Difftest::do_replay() {
-  auto info = dut->trace_info;
-  replay_status.in_replay = true;
-  replay_status.trace_head = info.trace_head;
-  replay_status.trace_size = info.trace_size;
-  memcpy(state, state_ss, sizeof(DiffState));
-  memcpy(&proxy->regs_int, proxy_reg_ss, proxy_reg_size);
-  proxy->ref_regcpy(&proxy->regs_int, DUT_TO_REF, false);
-  proxy->ref_csrcpy(squash_csr_buf, DUT_TO_REF);
-  proxy->ref_store_log_restore();
-  goldenmem_store_log_restore();
-  difftest_replay_head(info.trace_head);
-  // clear buffered queue
-#ifdef CONFIG_DIFFTEST_STOREEVENT
-  while (!store_event_queue.empty())
-    store_event_queue.pop();
-#endif // CONFIG_DIFFTEST_STOREEVENT
-#if defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_SQUASH)
-  while (!load_event_queue.empty())
-    load_event_queue.pop();
-#endif
-}
-#endif // CONFIG_DIFFTEST_REPLAY
 
 int Difftest::step() {
-#ifdef CONFIG_DIFFTEST_REPLAY
-  static int replay_step = 0;
-  if (replay_status.in_replay) {
-    if (!in_replay_range()) {
-      return 0;
-    } else {
-      replay_step++;
-      if (replay_step > replay_status.trace_size) {
-        Info("*** DUT run out of replay range, failed to get error location ***\n");
-        return 1;
-      }
-    }
-  }
-  bool canReplay = can_replay();
-  if (canReplay) {
-    replay_snapshot();
-  } else {
-    proxy->set_store_log(false);
-    goldenmem_set_store_log(false);
-  }
-  int ret = check_all();
-  if (ret && canReplay) {
-    Info("\n**** Start replay for more accurate error location ****\n");
-    do_replay();
-    return 0;
-  } else {
-    return ret;
-  }
-#else
   return check_all();
-#endif // CONFIG_DIFFTEST_REPLAY
 }
 
 inline int Difftest::check_all() {
@@ -332,12 +166,6 @@ inline int Difftest::check_all() {
 #ifdef CONFIG_DIFFTEST_STOREEVENT
   store_event_record();
 #endif
-
-#ifdef CONFIG_DIFFTEST_SQUASH
-#ifdef CONFIG_DIFFTEST_LOADEVENT
-  load_event_record();
-#endif // CONFIG_DIFFTEST_LOADEVENT
-#endif // CONFIG_DIFFTEST_SQUASH
 
 #ifdef DEBUG_GOLDENMEM
   if (do_golden_memory_update()) {
@@ -393,7 +221,7 @@ inline int Difftest::check_all() {
     dut->event.valid = 0;
     dut->commit[0].valid = 0;
   } else {
-#if !defined(BASIC_DIFFTEST_ONLY) && !defined(CONFIG_DIFFTEST_SQUASH)
+#ifndef BASIC_DIFFTEST_ONLY
     if (dut->commit[0].valid) {
       dut_commit_first_pc = dut->commit[0].pc;
       ref_commit_first_pc = proxy->pc;
@@ -407,12 +235,10 @@ inline int Difftest::check_all() {
         if (do_instr_commit(i)) {
           return 1;
         }
-#ifndef CONFIG_DIFFTEST_SQUASH
         do_load_check(i);
         if (do_store_check()) {
           return 1;
         }
-#endif // CONFIG_DIFFTEST_SQUASH
         dut->commit[i].valid = 0;
         num_commit += 1 + dut->commit[i].nFused;
       }
@@ -438,17 +264,8 @@ inline int Difftest::check_all() {
   }
 
   if (proxy->compare(dut) || pc_mismatch) {
-#ifdef FUZZING
-    if (in_disambiguation_state()) {
-      Info("Mismatch detected with a disambiguation state at pc = 0x%lx.\n", dut->trap.pc);
-      return 0;
-    }
-#endif
     display();
     proxy->display(dut);
-#ifdef FUZZER_LIB
-    stats.exit_code = SimExitCode::difftest;
-#endif // FUZZER_LIB
     return 1;
   }
 
@@ -486,27 +303,6 @@ void Difftest::do_exception() {
     proxy->ref_exec(1);
   }
 
-#ifdef FUZZING
-  static uint64_t lastExceptionPC = 0xdeadbeafUL;
-  static int sameExceptionPCCount = 0;
-  if (dut->event.exceptionPC == lastExceptionPC) {
-    if (sameExceptionPCCount >= 5) {
-      Info("Found infinite loop at exception_pc %lx. Exiting.\n", dut->event.exceptionPC);
-      dut->trap.hasTrap = 1;
-      dut->trap.code = STATE_FUZZ_COND;
-#ifdef FUZZER_LIB
-      stats.exit_code = SimExitCode::exception_loop;
-#endif // FUZZER_LIB
-      return;
-    }
-    sameExceptionPCCount++;
-  }
-  if (!sameExceptionPCCount && dut->event.exceptionPC != lastExceptionPC) {
-    sameExceptionPCCount = 0;
-  }
-  lastExceptionPC = dut->event.exceptionPC;
-#endif // FUZZING
-
   progress = true;
 }
 
@@ -523,18 +319,6 @@ int Difftest::do_instr_commit(int i) {
                      dut->commit[i].wdest, get_commit_data(i), dut->commit[i].skip != 0, dut->commit[i].special & 0x1,
                      dut->commit[i].lqIdx, dut->commit[i].sqIdx, dut->commit[i].robIdx, dut->commit[i].isLoad,
                      dut->commit[i].isStore);
-
-#ifdef FUZZING
-  // isExit
-  if (dut->commit[i].special & 0x2) {
-    dut->trap.hasTrap = 1;
-    dut->trap.code = STATE_SIM_EXIT;
-#ifdef FUZZER_LIB
-    stats.exit_code = SimExitCode::sim_exit;
-#endif // FUZZER_LIB
-    return 0;
-  }
-#endif // FUZZING
 
   progress = true;
   update_last_commit();
@@ -575,13 +359,6 @@ int Difftest::do_instr_commit(int i) {
   // when there's a fused instruction, let proxy execute more instructions.
   for (int j = 0; j < dut->commit[i].nFused + 1; j++) {
     proxy->ref_exec(1);
-#ifdef CONFIG_DIFFTEST_SQUASH
-    commit_stamp = (commit_stamp + 1) % CONFIG_DIFFTEST_SQUASH_STAMPSIZE;
-    do_load_check(i);
-    if (do_store_check()) {
-      return 1;
-    }
-#endif // CONFIG_DIFFTEST_SQUASH
   }
 
   return 0;
@@ -634,11 +411,7 @@ void Difftest::do_vec_load_check(int index, DifftestLoadEvent load_event) {
 
   proxy->sync();
 
-#ifdef CONFIG_DIFFTEST_SQUASH
-  auto vecFirstLdest = load_event.wdest;
-#else
   auto vecFirstLdest = dut->commit[index].wdest;
-#endif // CONFIG_DIFFTEST_SQUASH
 
   bool reg_mismatch = false;
 
@@ -653,11 +426,7 @@ void Difftest::do_vec_load_check(int index, DifftestLoadEvent load_event) {
 
     for (int i = 0; i < VLENE_64; i++) {
 #ifdef CONFIG_DIFFTEST_COMMITDATA
-#ifdef CONFIG_DIFFTEST_SQUASH
-      uint64_t dutRegData = load_event.vecCommitData[VLENE_64 * vdidx + i];
-#else
       uint64_t dutRegData = dut->commit_data[index].vecData[VLENE_64 * vdidx + i];
-#endif // CONFIG_DIFFTEST_SQUASH
 #else
       uint64_t dutRegData = dutRegPtr[i];
 #endif // CONFIG_DIFFTEST_COMMITDATA
@@ -692,11 +461,7 @@ void Difftest::do_vec_load_check(int index, DifftestLoadEvent load_event) {
 
       for (int i = 0; i < VLENE_64; i++) {
 #ifdef CONFIG_DIFFTEST_COMMITDATA
-#ifdef CONFIG_DIFFTEST_SQUASH
-        uint64_t dutRegData = load_event.vecCommitData[VLENE_64 * vdidx + i];
-#else
         uint64_t dutRegData = dut->commit_data[index].vecData[VLENE_64 * vdidx + i];
-#endif // CONFIG_DIFFTEST_SQUASH
 #else
         uint64_t dutRegData = dutRegPtr[i];
 #endif // CONFIG_DIFFTEST_COMMITDATA
@@ -722,11 +487,7 @@ void Difftest::do_vec_load_check(int index, DifftestLoadEvent load_event) {
 
         for (int i = 0; i < VLENE_64; i++) {
 #ifdef CONFIG_DIFFTEST_COMMITDATA
-#ifdef CONFIG_DIFFTEST_SQUASH
-          uint64_t dutRegData = load_event.vecCommitData[VLENE_64 * vdidx + i];
-#else
           uint64_t dutRegData = dut->commit_data[index].vecData[VLENE_64 * vdidx + i];
-#endif // CONFIG_DIFFTEST_SQUASH
 #else
           uint64_t dutRegData = dutRegPtr[i];
 #endif // CONFIG_DIFFTEST_COMMITDATA
@@ -748,16 +509,6 @@ void Difftest::do_load_check(int i) {
   // Handle load instruction carefully for SMP
 #ifdef CONFIG_DIFFTEST_LOADEVENT
   if (NUM_CORES > 1) {
-#ifdef CONFIG_DIFFTEST_SQUASH
-    if (load_event_queue.empty())
-      return;
-    auto load_event = load_event_queue.front();
-    if (load_event.stamp != commit_stamp)
-      return;
-    bool regWen = load_event.regWen;
-    auto refRegPtr = proxy->arch_reg(load_event.wdest, load_event.fpwen);
-    auto commitData = load_event.commitData;
-#else
     auto load_event = dut->load[i];
     if (!load_event.valid)
       return;
@@ -765,16 +516,11 @@ void Difftest::do_load_check(int i) {
         ((dut->commit[i].rfwen && dut->commit[i].wdest != 0) || dut->commit[i].fpwen) && !dut->commit[i].vecwen;
     auto refRegPtr = proxy->arch_reg(dut->commit[i].wdest, dut->commit[i].fpwen);
     auto commitData = get_commit_data(i);
-#endif // CONFIG_DIFFTEST_SQUASH
 
 #if defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_ARCHVECREGSTATE)
     if (load_event.isVLoad) {
       do_vec_load_check(i, load_event);
-#ifdef CONFIG_DIFFTEST_SQUASH
-      load_event_queue.pop();
-#else
       dut->load[i].valid = 0;
-#endif // CONFIG_DIFFTEST_SQUASH
       return;
     }
 #endif // CONFIG_DIFFTEST_LOADEVENT && CONFIG_DIFFTEST_ARCHVECREGSTATE
@@ -879,11 +625,7 @@ void Difftest::do_load_check(int i) {
         }
       }
     }
-#ifdef CONFIG_DIFFTEST_SQUASH
-    load_event_queue.pop();
-#else
     dut->load[i].valid = 0;
-#endif // CONFIG_DIFFTEST_SQUASH
   }
 #endif // CONFIG_DIFFTEST_LOADEVENT
 }
@@ -892,21 +634,11 @@ int Difftest::do_store_check() {
 #ifdef CONFIG_DIFFTEST_STOREEVENT
   while (!store_event_queue.empty()) {
     auto store_event = store_event_queue.front();
-#ifdef CONFIG_DIFFTEST_SQUASH
-    if (store_event.stamp != commit_stamp)
-      return 0;
-#endif // CONFIG_DIFFTEST_SQUASH
     auto addr = store_event.addr;
     auto data = store_event.data;
     auto mask = store_event.mask;
 
     if (proxy->store_commit(&addr, &data, &mask)) {
-#ifdef FUZZING
-      if (in_disambiguation_state()) {
-        Info("Store mismatch detected with a disambiguation state at pc = 0x%lx.\n", dut->trap.pc);
-        return 0;
-      }
-#endif
       uint64_t pc = store_event.pc;
       display();
 
@@ -1455,19 +1187,6 @@ void Difftest::store_event_record() {
   }
 }
 #endif
-
-#ifdef CONFIG_DIFFTEST_SQUASH
-#ifdef CONFIG_DIFFTEST_LOADEVENT
-void Difftest::load_event_record() {
-  for (int i = 0; i < CONFIG_DIFF_LOAD_WIDTH; i++) {
-    if (dut->load[i].valid) {
-      load_event_queue.push(dut->load[i]);
-      dut->load[i].valid = 0;
-    }
-  }
-}
-#endif // CONFIG_DIFFTEST_LOADEVENT
-#endif // CONFIG_DIFFTEST_SQUASH
 
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
 void Difftest::cmo_inval_event_record() {

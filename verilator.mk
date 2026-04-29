@@ -42,12 +42,6 @@ ifneq ($(NO_DIFF), 1)
 VEXTRA_FLAGS += +define+DIFFTEST
 endif
 
-# Link fuzzer libraries
-ifneq ($(FUZZER_LIB), )
-# the target is named as fuzzer for clarity
-EMU = $(BUILD_DIR)/fuzzer
-endif
-
 # Verilator binary
 VERILATOR ?= verilator
 

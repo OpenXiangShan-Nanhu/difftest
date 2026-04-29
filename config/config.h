@@ -87,7 +87,6 @@ extern unsigned long EMU_FLASH_SIZE;
 // whether to check memory coherence during refilling
 #define DEBUG_REFILL
 
-
 // -----------------------------------------------------------------------
 // Simulator run ahead config
 // -----------------------------------------------------------------------

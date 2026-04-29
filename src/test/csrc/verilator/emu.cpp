@@ -243,11 +243,7 @@ inline EmuArgs parse_args(int argc, const char *argv[]) {
           case 22: args.overwrite_nbytes = atoll_strict(optarg, "overwrite_nbytes"); continue;
           case 23: remote_jtag_port = atoll_strict(optarg, "remote-jtag-port"); continue;
           case 24:
-#ifdef CONFIG_DIFFTEST_IOTRACE
-            set_iotrace_name(optarg);
-#else
-            printf("[WARN] iotrace is not enabled at compile time, ignore --iotrace-name");
-#endif // CONFIG_DIFFTEST_IOTRACE
+            printf("[WARN] iotrace 已移除，忽略 --iotrace-name\n");
             continue;
           case 25:
 #ifdef WITH_DRAMSIM3
@@ -684,7 +680,7 @@ inline void Emulator::single_cycle() {
 
 #if VM_TRACE == 1
   if (args.enable_waveform) {
-#if !defined(CONFIG_NO_DIFFTEST) && !defined(CONFIG_DIFFTEST_SQUASH)
+#ifndef CONFIG_NO_DIFFTEST
     uint64_t cycle = difftest[0]->get_trap_event()->cycleCnt;
 #else
     static uint64_t cycle = -1UL;
@@ -791,9 +787,6 @@ int Emulator::tick() {
 
   if (exceed_cycle_limit) {
     trapCode = STATE_LIMIT_EXCEEDED;
-#ifdef FUZZER_LIB
-    stats.exit_code = SimExitCode::exceed_limit;
-#endif // FUZZER_LIB
     return trapCode;
   }
 
@@ -803,9 +796,6 @@ int Emulator::tick() {
     auto trap = difftest[i]->get_trap_event();
     if (trap->instrCnt >= core_max_instr[i]) {
       trapCode = STATE_LIMIT_EXCEEDED;
-#ifdef FUZZER_LIB
-      stats.exit_code = SimExitCode::exceed_limit;
-#endif // FUZZER_LIB
       return trapCode;
     }
   }
@@ -953,15 +943,6 @@ int Emulator::tick() {
   trapCode = difftest_nstep(step, args.enable_diff);
 
   if (trapCode != STATE_RUNNING) {
-#ifdef FUZZER_LIB
-    if (trapCode == STATE_GOODTRAP) {
-      stats.exit_code = SimExitCode::good_trap;
-    } else if (trapCode != STATE_FUZZ_COND && trapCode != STATE_SIM_EXIT) {
-      stats.exit_code = SimExitCode::bad_trap;
-    } else if (stats.exit_code == SimExitCode::unknown) {
-      stats.exit_code = SimExitCode::bad_trap;
-    }
-#endif
     return trapCode;
   }
 #endif // CONFIG_NO_DIFFTEST
@@ -987,15 +968,6 @@ int Emulator::tick() {
         snapshot_slot[0].save();
         snapshot_count = 0;
       }
-    }
-  }
-#endif
-
-#ifdef DEBUG_TILELINK
-  if (args.dump_tl_interval != 0) {
-    if ((cycles != 0) && (cycles % args.dump_tl_interval == 0)) {
-      time_t now = time(NULL);
-      checkpoint_db(logdb_filename(now));
     }
   }
 #endif

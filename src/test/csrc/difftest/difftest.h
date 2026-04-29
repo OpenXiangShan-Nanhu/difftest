@@ -24,9 +24,6 @@
 #include "refproxy.h"
 #include <queue>
 #include <unordered_set>
-#ifdef FUZZING
-#include "emu.h"
-#endif // FUZZING
 
 enum {
   EX_IAM,       // instruction address misaligned
@@ -73,25 +70,6 @@ enum {
 #define PAGE_SHIFT 12
 #define PAGE_SIZE  (1ul << PAGE_SHIFT)
 #define PAGE_MASK  (PAGE_SIZE - 1)
-
-enum retire_inst_type {
-  RET_NORMAL = 0,
-  RET_INT,
-  RET_EXC
-};
-
-enum retire_mem_type {
-  RET_OTHER = 0,
-  RET_LOAD,
-  RET_STORE
-};
-
-class store_event_t {
-public:
-  uint64_t addr;
-  uint64_t data;
-  uint8_t mask;
-};
 
 class CommitTrace {
 public:
@@ -264,11 +242,9 @@ public:
   }
   void trace_write(int step) {
     if (difftrace) {
-      int zone = 0;
       for (int i = 0; i < step; i++) {
-        difftrace->append(diffstate_buffer[id]->get(zone, i));
+        difftrace->append(diffstate_buffer[id]->get(0, i));
       }
-      zone = (zone + 1) % CONFIG_DIFFTEST_ZONESIZE;
     }
   }
 
@@ -304,16 +280,8 @@ public:
 protected:
   DiffTrace<DiffTestState> *difftrace = nullptr;
 
-#ifdef CONFIG_DIFFTEST_BATCH
-  static const uint64_t commit_storage = CONFIG_DIFFTEST_BATCH_SIZE;
-#else
   static const uint64_t commit_storage = 1;
-#endif // CONFIG_DIFFTEST_BATCH
-#ifdef CONFIG_DIFFTEST_SQUASH
-  static const uint64_t timeout_scale = 256;
-#else
   static const uint64_t timeout_scale = 1;
-#endif // CONFIG_DIFFTEST_SQUASH
   static const uint64_t first_commit_limit = 1000;
   static const uint64_t stuck_commit_limit = first_commit_limit * timeout_scale;
 
@@ -338,14 +306,6 @@ protected:
 #ifdef DEBUG_REFILL
   uint64_t track_instr = 0;
 #endif
-
-#ifdef CONFIG_DIFFTEST_SQUASH
-  int commit_stamp = 0;
-#ifdef CONFIG_DIFFTEST_LOADEVENT
-  std::queue<DifftestLoadEvent> load_event_queue;
-  void load_event_record();
-#endif // CONFIG_DIFFTEST_LOADEVENT
-#endif // CONFIG_DIFFTEST_SQUASH
 
 #ifdef CONFIG_DIFFTEST_STOREEVENT
   std::queue<DifftestStoreEvent> store_event_queue;
@@ -425,19 +385,7 @@ protected:
     return dut->trap.hasWFI;
   }
   inline bool in_disambiguation_state() {
-    static bool was_found = false;
-#ifdef FUZZING
-    // Only in fuzzing mode
-    if (proxy->in_disambiguation_state()) {
-      was_found = true;
-      dut->trap.hasTrap = 1;
-      dut->trap.code = STATE_AMBIGUOUS;
-#ifdef FUZZER_LIB
-      stats.exit_code = SimExitCode::ambiguous;
-#endif // FUZZER_LIB
-    }
-#endif // FUZZING
-    return was_found;
+    return false;
   }
 
 #ifdef CONFIG_DIFFTEST_ARCHINTDELAYEDUPDATE
@@ -465,22 +413,6 @@ protected:
 #ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
   void do_sync_custom_mflushpwr();
 #endif
-#ifdef CONFIG_DIFFTEST_REPLAY
-  struct {
-    bool in_replay = false;
-    int trace_head;
-    int trace_size;
-  } replay_status;
-
-  DiffState *state_ss = NULL;
-  int proxy_reg_size = 0;
-  uint8_t *proxy_reg_ss = NULL;
-  uint64_t squash_csr_buf[4096];
-  bool can_replay();
-  bool in_replay_range();
-  void replay_snapshot();
-  void do_replay();
-#endif // CONFIG_DIFFTEST_REPLAY
 };
 
 extern Difftest **difftest;
@@ -498,14 +430,5 @@ void difftest_trace_read();
 void difftest_trace_write(int step);
 
 int init_nemuproxy(size_t);
-
-#ifdef CONFIG_DIFFTEST_SQUASH
-extern "C" void set_squash_scope();
-extern "C" void difftest_squash_enable(int enable);
-#endif // CONFIG_DIFFTEST_SQUASH
-#ifdef CONFIG_DIFFTEST_REPLAY
-extern "C" void set_replay_scope();
-extern "C" void difftest_replay_head(int idx);
-#endif // CONFIG_DIFFTEST_REPLAY
 
 #endif
