@@ -21,6 +21,7 @@
 #include "goldenmem.h"
 #include "ram.h"
 #include "spikedasm.h"
+#include <cstdio>
 #if defined(CONFIG_DIFFTEST_SQUASH) && !defined(CONFIG_PLATFORM_FPGA)
 #include "svdpi.h"
 #endif // CONFIG_DIFFTEST_SQUASH && !CONFIG_PLATFORM_FPGA
