@@ -70,11 +70,6 @@ enum {
 #define IS_LOAD_STORE(instr)   (((instr & 0x7f) == 0x03) || ((instr & 0x7f) == 0x23))
 #define IS_TRIGGERCSR(instr)   (((instr & 0x7f) == 0x73) && ((instr & (0xff0 << 20)) == (0x7a0 << 20)))
 #define IS_DEBUGCSR(instr)     (((instr & 0x7f) == 0x73) && ((instr & (0xffe << 20)) == (0x7b0 << 20))) // 7b0 and 7b1
-#ifdef DEBUG_MODE_DIFF
-#define DEBUG_MODE_SKIP(v, f, instr) DEBUG_MEM_REGION(v, f) && (IS_LOAD_STORE(instr) || IS_TRIGGERCSR(instr))
-#else
-#define DEBUG_MODE_SKIP(v, f, instr) false
-#endif
 #define PAGE_SHIFT 12
 #define PAGE_SIZE  (1ul << PAGE_SHIFT)
 #define PAGE_MASK  (PAGE_SIZE - 1)
@@ -283,11 +278,7 @@ public:
     return &(dut->trap);
   }
   uint64_t *arch_reg(uint8_t src, bool is_fp = false) {
-    return
-#ifdef CONFIG_DIFFTEST_ARCHFPREGSTATE
-        is_fp ? dut->regs_fp.value + src :
-#endif
-              dut->regs_int.value + src;
+    return is_fp ? dut->regs_fp.value + src : dut->regs_int.value + src;
   }
 
 #ifdef CONFIG_DIFFTEST_ARCHVECREGSTATE
@@ -303,12 +294,6 @@ public:
 #ifdef DEBUG_REFILL
   void save_track_instr(uint64_t instr) {
     track_instr = instr;
-  }
-#endif
-
-#ifdef DEBUG_MODE_DIFF
-  void debug_mode_copy(uint64_t addr, size_t size, uint32_t data) {
-    proxy->debug_mem_sync(addr, &data, size);
   }
 #endif
 
@@ -329,11 +314,7 @@ protected:
 #else
   static const uint64_t timeout_scale = 1;
 #endif // CONFIG_DIFFTEST_SQUASH
-#if defined(CPU_NUTSHELL) || defined(CPU_ROCKET_CHIP)
-  static const uint64_t first_commit_limit = 1000;
-#elif defined(CPU_XIANGSHAN)
   static const uint64_t first_commit_limit = 50000;
-#endif
   static const uint64_t stuck_commit_limit = first_commit_limit * timeout_scale;
 
 public:

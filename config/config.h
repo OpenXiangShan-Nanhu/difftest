@@ -23,36 +23,19 @@
 
 #include "diffstate.h"
 
-#if defined(CPU_NUTSHELL)
-#elif defined(CPU_XIANGSHAN)
-#elif defined(CPU_ROCKET_CHIP)
-#else
-// This is the default CPU
-#define CPU_NUTSHELL
-#endif
-
 // -----------------------------------------------------------------------
 // Memory and device config
 // -----------------------------------------------------------------------
 
 // emulated memory size (Byte)
-#ifndef DEFAULT_EMU_RAM_SIZE
-#ifdef CPU_XIANGSHAN
-#define DEFAULT_EMU_RAM_SIZE 0x7ff80000000UL // from 0x8000_0000 to 0x800_0000_0000, (8192-2)GB memory
-#else
 #define DEFAULT_EMU_RAM_SIZE (8 * 1024 * 1024 * 1024UL) // 8 GB
-#endif
-#endif
+
 
 // physical memory base address
 #define PMEM_BASE 0x80000000UL
 
 // first valid instruction's address, difftest starts from this instruction
-#if defined(CPU_NUTSHELL)
-#define FIRST_INST_ADDRESS 0x80000000UL
-#elif defined(CPU_XIANGSHAN) || defined(CPU_ROCKET_CHIP)
 #define FIRST_INST_ADDRESS 0x10000000UL
-#endif
 
 // sdcard image to be used in simulation
 // uncomment the following line to enable this feature
@@ -61,12 +44,7 @@
 // flash image to be used in simulation
 // flash access address align mask
 #define FLASH_ALIGH_MASK 0xfffffff8
-
-#if defined(CPU_ROCKET_CHIP)
-#define DEFAULT_EMU_FLASH_SIZE 0x10000UL
-#else
 #define DEFAULT_EMU_FLASH_SIZE (32 * 1024UL) // 4 MB
-#endif
 extern unsigned long EMU_FLASH_SIZE;
 
 #define DIFFTEST_VLEN 128
@@ -109,24 +87,11 @@ extern unsigned long EMU_FLASH_SIZE;
 // whether to check memory coherence during refilling
 #define DEBUG_REFILL
 
-// whether to check l1tlb response
-#define DEBUG_L1TLB
-
-// whether to check l2tlb response
-// #define DEBUG_L2TLB
-
-// whether to enable REF/GoldenMemory record origin data of memory and restore
-#ifdef CONFIG_DIFFTEST_REPLAY
-#define ENABLE_STORE_LOG
-#endif // CONFIG_DIFFTEST_REPLAY
 
 // -----------------------------------------------------------------------
 // Simulator run ahead config
 // -----------------------------------------------------------------------
 
-// Let a fork of simulator run ahead of commit for perf analysis
-// uncomment the following line to enable this feature
-//#define ENABLE_RUNHEAD
 
 // max run ahead width
 #define DIFFTEST_RUNAHEAD_WIDTH 6
@@ -147,13 +112,6 @@ extern unsigned long EMU_FLASH_SIZE;
 // uncomment the following line to enable this feature
 #define AUTO_RUNAHEAD_CHECKPOINT_GC
 #define AUTO_RUNAHEAD_CHECKPOINT_GC_THRESHOLD 192
-
-// -----------------------------------------------------------------------
-// Debug mode and trigger
-// -----------------------------------------------------------------------
-// make diff in debug mode available by copying debug mode mmio
-// currently only usable on spike
-//#define DEBUG_MODE_DIFF
 
 #ifndef DEBUG_MEM_BASE
 #define DEBUG_MEM_BASE 0x38020000

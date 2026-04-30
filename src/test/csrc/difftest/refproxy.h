@@ -90,7 +90,6 @@ class RefProxyConfig {
 public:
   bool ignore_illegal_mem_access = false;
   bool debug_difftest = false;
-  bool enable_store_log = false;
 };
 
 /* clang-format off */
@@ -106,34 +105,6 @@ public:
   f(store_commit, difftest_store_commit, int, uint64_t*, uint64_t*, uint8_t*) \
   f(raise_intr, difftest_raise_intr, void, uint64_t)
 
-#ifdef ENABLE_RUNHEAD
-#define REF_RUN_AHEAD(f)                                                      \
-  f(query, difftest_query_ref, void, void *, uint64_t)
-#else
-#define REF_RUN_AHEAD(f)
-#endif
-
-#ifdef ENABLE_STORE_LOG
-#define REF_STORE_LOG(f)                                                      \
-  f(ref_store_log_reset, difftest_store_log_reset, void, )                    \
-  f(ref_store_log_restore, difftest_store_log_restore, void, )
-#else
-#define REF_STORE_LOG(f)
-#endif
-
-#ifdef DEBUG_MODE_DIFF
-#define REF_DEBUG_MODE(f)                                                     \
-  f(debug_mem_sync, debug_mem_sync, void, uint64_t, void *, size_t)
-#else
-#define REF_DEBUG_MODE(f)
-#endif
-
-#define REF_ALL(f)  \
-  REF_BASE(f)       \
-  REF_RUN_AHEAD(f)  \
-  REF_STORE_LOG(f)  \
-  REF_DEBUG_MODE(f)
-
 #define REF_OPTIONAL(f)                                                                                     \
   f(load_flash_bin, difftest_load_flash, void, const char*, size_t)                                         \
   f(load_flash_bin_v2, difftest_load_flash_v2, void, const uint8_t*, size_t)                                \
@@ -145,51 +116,21 @@ public:
   f(ref_skip_one, difftest_skip_one, void, bool, bool, uint32_t, uint64_t)                                  \
   f(ref_guided_exec, difftest_guided_exec, void, void*)                                                     \
   f(ref_memcpy_init, difftest_memcpy_init, void, uint64_t, void*, size_t, bool)                             \
-  f(raise_nmi_intr, difftest_raise_nmi_intr, void, bool)                                                    \
-  f(ref_virtual_interrupt_is_hvictl_inject, difftest_virtual_interrupt_is_hvictl_inject, void, bool)        \
-  f(ref_interrupt_delegate, difftest_interrupt_delegate, void, void*)                                    \
   f(disambiguation_state, difftest_disambiguation_state, int, )                                             \
-  f(ref_non_reg_interrupt_pending, difftest_non_reg_interrupt_pending, void, void*)                         \
-  f(raise_mhpmevent_overflow, difftest_raise_mhpmevent_overflow, void, uint64_t)                            \
-  f(ref_raise_critical_error, difftest_raise_critical_error, bool)                                          \
-  f(ref_get_store_event_other_info, difftest_get_store_event_other_info, void, void*)                       \
-  f(ref_sync_aia, difftest_sync_aia, void, void*)                                                           \
-  f(ref_sync_custom_mflushpwr, difftest_sync_custom_mflushpwr, void, bool)                                  \
-  f(ref_get_vec_load_vdNum, difftest_get_vec_load_vdNum, int, )                                                 \
-  f(ref_get_vec_load_dual_goldenmem_reg, difftest_get_vec_load_dual_goldenmem_reg, void*, )                                                       \
-  f(ref_update_vec_load_goldenmen, difftest_update_vec_load_pmem, void, )
+  f(ref_non_reg_interrupt_pending, difftest_non_reg_interrupt_pending, void, void*)
 #define RefFunc(func, ret, ...) ret func(__VA_ARGS__)
 #define DeclRefFunc(this_func, dummy, ret, ...) RefFunc((*this_func), ret, __VA_ARGS__);
 /* clang-format on */
 
-// This class only loads the functions. It should never call anything.
-class AbstractRefProxy {
+class SpikeProxy {
 public:
-  REF_ALL(DeclRefFunc)
+  REF_BASE(DeclRefFunc)
 
-  AbstractRefProxy(int coreid, size_t ram_size, const char *env, const char *file_path);
-  ~AbstractRefProxy();
-
-protected:
-  REF_OPTIONAL(DeclRefFunc)
-
-private:
-  void *const handler;
-  void *load_handler(const char *env, const char *file_path);
-  template <typename T> T load_function(const char *func_name);
-};
-
-class RefProxy : public AbstractRefProxy {
-public:
-  RefProxy(int coreid, size_t ram_size) : AbstractRefProxy(coreid, ram_size, nullptr, nullptr) {}
-  RefProxy(int coreid, size_t ram_size, const char *env, const char *file_path)
-      : AbstractRefProxy(coreid, ram_size, env, file_path) {}
-  ~RefProxy();
+  SpikeProxy(int coreid, size_t ram_size);
+  ~SpikeProxy();
 
   DifftestArchIntRegState regs_int;
-#ifdef CONFIG_DIFFTEST_ARCHFPREGSTATE
   DifftestArchFpRegState regs_fp;
-#endif // CONFIG_DIFFTEST_ARCHFPREGSTATE
   DifftestCSRState csr;
   uint64_t pc;
 #ifdef CONFIG_DIFFTEST_HCSRSTATE
@@ -209,11 +150,7 @@ public:
 #endif // CONFIG_DIFFTEST_TRIGGERCSRSTATE
 
   inline uint64_t *arch_reg(uint8_t src, bool is_fp = false) {
-    return
-#ifdef CONFIG_DIFFTEST_ARCHFPREGSTATE
-        is_fp ? regs_fp.value + src :
-#endif
-              regs_int.value + src;
+    return is_fp ? regs_fp.value + src : regs_int.value + src;
   }
 
 #ifdef CONFIG_DIFFTEST_ARCHVECREGSTATE
@@ -239,39 +176,9 @@ public:
 
       if (rfwen)
         regs_int.value[wdest] = wdata;
-#ifdef CONFIG_DIFFTEST_ARCHFPREGSTATE
       if (fpwen)
         regs_fp.value[wdest] = wdata;
-#endif // CONFIG_DIFFTEST_ARCHFPREGSTATE
-#ifdef CONFIG_DIFFTEST_ARCHVECREGSTATE
-      // TODO: vec skip is not supported at this time.
-      if (vecwen)
-        assert(0);
-#endif // CONFIG_DIFFTEST_ARCHVECREGSTATE
-
       sync(true);
-    }
-  }
-
-  inline void trigger_nmi(bool hasNMI) {
-    if (raise_nmi_intr) {
-      raise_nmi_intr(hasNMI);
-    } else {
-      Info("No NMI interrupt is triggered.\n");
-    }
-  }
-
-  inline void virtual_interrupt_is_hvictl_inject(bool virtualInterruptIsHvictlInject) {
-    if (ref_virtual_interrupt_is_hvictl_inject) {
-      ref_virtual_interrupt_is_hvictl_inject(virtualInterruptIsHvictlInject);
-    } else {
-      Info("Virtual interrupt without hvictl register injection.\n");
-    }
-  }
-
-  inline void intr_delegate(struct InterruptDelegate &intrDeleg) {
-    if (ref_interrupt_delegate) {
-      ref_interrupt_delegate(&intrDeleg);
     }
   }
 
@@ -281,77 +188,17 @@ public:
     }
   }
 
-  inline void mhpmevent_overflow(uint64_t mhpmeventOverflow) {
-    if (raise_mhpmevent_overflow) {
-      raise_mhpmevent_overflow(mhpmeventOverflow);
-    }
-  }
-
-  inline bool raise_critical_error() {
-    return ref_raise_critical_error ? ref_raise_critical_error() : false;
-  }
-
-  inline void sync_aia(struct FromAIA &src) {
-    if (ref_sync_aia) {
-      ref_sync_aia(&src);
-    } else {
-      Info("Does not support the out-of-core part of AIA.\n");
-    }
-  }
-
-  inline void sync_custom_mflushpwr(bool l2FlushDone) {
-    if (ref_sync_custom_mflushpwr) {
-      ref_sync_custom_mflushpwr(l2FlushDone);
-    } else {
-      printf("Does not support sync custom CSR mflushpwr.\n");
-    }
-  }
-
-  inline bool check_ref_vec_load_goldenmem() {
-    return ref_get_vec_load_vdNum && ref_get_vec_load_dual_goldenmem_reg && ref_update_vec_load_goldenmen;
-  }
-
-  inline int get_ref_vdNum() {
-    if (ref_get_vec_load_vdNum) {
-      return ref_get_vec_load_vdNum();
-    } else {
-      Info("Does not support the get vec load vd num.\n");
-      return 0;
-    }
-  }
-
-  inline void *get_vec_goldenmem_reg() {
-    if (ref_get_vec_load_dual_goldenmem_reg) {
-      return ref_get_vec_load_dual_goldenmem_reg();
-    } else {
-      Info("Does not support the get vec load goldenmem reg.\n");
-      return nullptr;
-    }
-  }
-
-  inline void vec_update_goldenmem() {
-    if (ref_update_vec_load_goldenmen) {
-      ref_update_vec_load_goldenmen();
-    } else {
-      Info("Does not support the get vec update goldenmem.\n");
-    }
-  }
 
   inline void guided_exec(struct ExecutionGuide &guide) {
     return ref_guided_exec ? ref_guided_exec(&guide) : ref_exec(1);
   }
 
-  virtual inline bool in_disambiguation_state() {
+  inline bool in_disambiguation_state() {
     return disambiguation_state ? disambiguation_state() : false;
   }
 
   inline void set_debug(bool enabled = false) {
     config.debug_difftest = enabled;
-    sync_config();
-  }
-
-  inline void set_illegal_mem_access(bool ignored = false) {
-    config.ignore_illegal_mem_access = ignored;
     sync_config();
   }
 
@@ -365,28 +212,9 @@ public:
 
   void flash_init(const uint8_t *flash_base, size_t size, const char *flash_bin);
 
-  inline void get_store_event_other_info(void *info) {
-    if (ref_get_store_event_other_info) {
-      ref_get_store_event_other_info(info);
-    } else {
-      Info(
-          "This version of 'REF' does not support the 'PC' value of store commit event. Please use a newer version of "
-          "'REF'.\n");
-    }
-  }
-
-#ifdef ENABLE_STORE_LOG
-  inline void set_store_log(bool enable = false) {
-    config.enable_store_log = enable;
-    sync_config();
-  }
-#endif // ENABLE_STORE_LOG
-
   inline int get_reg_size() {
     return sizeof(DifftestArchIntRegState) + sizeof(DifftestCSRState) + sizeof(uint64_t)
-#ifdef CONFIG_DIFFTEST_ARCHFPREGSTATE
            + sizeof(DifftestArchFpRegState)
-#endif // CONFIG_DIFFTEST_ARCHFPREGSTATE
 #ifdef CONFIG_DIFFTEST_ARCHVECREGSTATE
            + sizeof(DifftestArchVecRegState)
 #endif // CONFIG_DIFFTEST_ARCHVECREGSTATE
@@ -411,29 +239,16 @@ public:
 
 private:
   RefProxyConfig config;
+  void *const handler;
 
   inline void sync_config() {
     update_config(&config);
   }
+  void *load_handler();
+  template <typename T> T load_function(const char *func_name);
   bool do_csr_waive(DiffTestState *dut);
-};
 
-class NemuProxy : public RefProxy {
-public:
-  NemuProxy(int coreid, size_t ram_size = 0);
-  ~NemuProxy() {}
-};
-
-class SpikeProxy : public RefProxy {
-public:
-  SpikeProxy(int coreid, size_t ram_size = 0);
-  ~SpikeProxy() {}
-};
-
-class LinkedProxy : public RefProxy {
-public:
-  LinkedProxy(int coreid, size_t ram_size = 0);
-  ~LinkedProxy() {}
+  REF_OPTIONAL(DeclRefFunc)
 };
 
 struct SyncState {

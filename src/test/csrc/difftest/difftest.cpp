@@ -358,28 +358,6 @@ inline int Difftest::check_all() {
   }
 #endif
 
-#ifdef DEBUG_L2TLB
-  if (do_l2tlb_check()) {
-    return 1;
-  }
-#endif
-
-#ifdef DEBUG_L1TLB
-  if (do_l1tlb_check()) {
-    return 1;
-  }
-#endif
-
-#ifdef DEBUG_MODE_DIFF
-  // skip load & store insts in debug mode
-  // for other insts copy inst content to ref's dummy debug module
-  for (int i = 0; i < DIFFTEST_COMMIT_WIDTH; i++) {
-    if (DEBUG_MEM_REGION(dut->commit[i].valid, dut->commit[i].pc))
-      debug_mode_copy(dut->commit[i].pc, dut->commit[i].isRVC ? 2 : 4, dut->commit[i].inst);
-  }
-
-#endif
-
 #ifdef CONFIG_DIFFTEST_LRSCEVENT
   // sync lr/sc reg microarchitectural status to the REF
   if (dut->lrsc.valid) {
@@ -478,15 +456,9 @@ inline int Difftest::check_all() {
 
 void Difftest::do_interrupt() {
   state->record_interrupt(dut->event.exceptionPC, dut->event.exceptionInst, dut->event.interrupt);
-  if (dut->event.hasNMI) {
-    proxy->trigger_nmi(dut->event.hasNMI);
-  } else if (dut->event.virtualInterruptIsHvictlInject) {
-    proxy->virtual_interrupt_is_hvictl_inject(dut->event.virtualInterruptIsHvictlInject);
-  }
   struct InterruptDelegate intrDeleg;
   intrDeleg.irToHS = dut->event.irToHS;
   intrDeleg.irToVS = dut->event.irToVS;
-  proxy->intr_delegate(intrDeleg);
   proxy->raise_intr(dut->event.interrupt | (1ULL << 63));
   progress = true;
 }
@@ -510,11 +482,6 @@ void Difftest::do_exception() {
   } else if (dut->event.exception == EX_HWE) {
     proxy->raise_intr(dut->event.exception);
   } else {
-#ifdef DEBUG_MODE_DIFF
-    if (DEBUG_MEM_REGION(true, dut->event.exceptionPC)) {
-      debug_mode_copy(dut->event.exceptionPC, 4, dut->event.exceptionInst);
-    }
-#endif
     proxy->ref_exec(1);
   }
 
@@ -594,16 +561,9 @@ int Difftest::do_instr_commit(int i) {
     }
   }
 
-#ifdef DEBUG_MODE_DIFF
-  if (spike_valid() && (IS_DEBUGCSR(commit_instr) || IS_TRIGGERCSR(commit_instr))) {
-    Info("s0 is %016lx ", dut->regs.gpr[8]);
-    Info("pc is %lx %s\n", commit_pc, spike_dasm(commit_instr));
-  }
-#endif
-
   // MMIO accessing should not be a branch or jump, just +2/+4 to get the next pc
   // to skip the checking of an instruction, just copy the reg state to reference design
-  if (dut->commit[i].skip || (DEBUG_MODE_SKIP(dut->commit[i].valid, dut->commit[i].pc, dut->commit[i].inst))) {
+  if (dut->commit[i].skip) {
     // We use the physical register file to get wdata
     proxy->skip_one(dut->commit[i].isRVC, (dut->commit[i].rfwen && dut->commit[i].wdest != 0), dut->commit[i].fpwen,
                     dut->commit[i].vecwen, dut->commit[i].wdest, get_commit_data(i));
