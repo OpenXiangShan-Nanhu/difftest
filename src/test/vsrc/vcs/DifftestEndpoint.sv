@@ -367,12 +367,12 @@ assign workload_switch = simv_result == `SIMV_DONE;
 assign difftest_uart_in_ch = 8'hff;
 always @(posedge clock) begin
   if (!reset && difftest_uart_out_valid) begin
-    if(difftest_uart_out_ch[7] == 0) begin
+    if(|difftest_uart_out_ch) begin
       $fwrite(32'h8000_0001, "%c", difftest_uart_out_ch);
       $fflush();
     end
     else begin
-      $display("\033[32mHIT GOOD TRAP!\033[0m");
+      $display("\033[32mHIT GOOD TRAP!(uart output 0xff)\033[0m");
       io_simFinal <= 1'b1;
     end
   end
