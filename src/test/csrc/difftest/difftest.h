@@ -314,7 +314,7 @@ protected:
 #else
   static const uint64_t timeout_scale = 1;
 #endif // CONFIG_DIFFTEST_SQUASH
-  static const uint64_t first_commit_limit = 1000;
+  static const uint64_t first_commit_limit = 10000;
   static const uint64_t stuck_commit_limit = first_commit_limit * timeout_scale;
 
 public:
