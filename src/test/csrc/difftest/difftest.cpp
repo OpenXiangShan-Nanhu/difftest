@@ -40,6 +40,23 @@ typedef union {
     uint8_t u8[8];
 } uint64_splitter;
 
+static void sync_uncache_mm_store_to_ref(RefProxy *proxy, uint64_t addr, uint8_t *data, uint8_t mask) {
+  for (int offset = 0; offset < 8;) {
+    if (((mask >> offset) & 1) == 0) {
+      offset++;
+      continue;
+    }
+
+    int len = 1;
+    while (offset + len < 8 && ((mask >> (offset + len)) & 1)) {
+      len++;
+    }
+
+    proxy->ref_memcpy(addr + offset, data + offset, len, DUT_TO_REF);
+    offset += len;
+  }
+}
+
 int difftest_init() {
 #ifdef CONFIG_DIFFTEST_PERFCNT
   difftest_perfcnt_init();
@@ -1484,6 +1501,8 @@ int Difftest::do_golden_memory_update() {
       uint8_t flag = NUM_CORES > 1 ? 1 : 0;
       update_goldenmem(dut->uncache_mm_store[i].addr, dut->uncache_mm_store[i].data, dut->uncache_mm_store[i].mask, 8,
                        flag);
+      sync_uncache_mm_store_to_ref(proxy, dut->uncache_mm_store[i].addr, dut->uncache_mm_store[i].data,
+                                   dut->uncache_mm_store[i].mask);
       if (dut->uncache_mm_store[i].addr == track_instr) {
         dumpGoldenMem("Uncache MM Store", track_instr, cycleCnt);
       }
@@ -1718,6 +1737,20 @@ void Difftest::do_sync_aia() {
     aia.stopei = dut->sync_aia.stopei;
     aia.vstopei = dut->sync_aia.vstopei;
     aia.hgeip = dut->sync_aia.hgeip;
+    aia.mEidelivery = dut->sync_aia.mEidelivery;
+    aia.sEidelivery = dut->sync_aia.sEidelivery;
+    aia.vsEidelivery = dut->sync_aia.vsEidelivery;
+    aia.mEithreshold = dut->sync_aia.mEithreshold;
+    aia.sEithreshold = dut->sync_aia.sEithreshold;
+    aia.vsEithreshold = dut->sync_aia.vsEithreshold;
+    aia.mEip0 = dut->sync_aia.mEip0;
+    aia.sEip0 = dut->sync_aia.sEip0;
+    aia.vsEip0 = dut->sync_aia.vsEip0;
+    aia.mEie0 = dut->sync_aia.mEie0;
+    aia.sEie0 = dut->sync_aia.sEie0;
+    aia.vsEie0 = dut->sync_aia.vsEie0;
+    aia.mIprio0 = dut->sync_aia.mIprio0;
+    aia.sIprio0 = dut->sync_aia.sIprio0;
     proxy->sync_aia(aia);
     dut->sync_aia.valid = 0;
   }

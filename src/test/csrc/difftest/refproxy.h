@@ -516,6 +516,20 @@ struct FromAIA {
   uint64_t stopei;
   uint64_t vstopei;
   uint64_t hgeip;
+  uint64_t mEidelivery;
+  uint64_t sEidelivery;
+  uint64_t vsEidelivery;
+  uint64_t mEithreshold;
+  uint64_t sEithreshold;
+  uint64_t vsEithreshold;
+  uint64_t mEip0;
+  uint64_t sEip0;
+  uint64_t vsEip0;
+  uint64_t mEie0;
+  uint64_t sEie0;
+  uint64_t vsEie0;
+  uint64_t mIprio0;
+  uint64_t sIprio0;
 };
 
 struct InterruptDelegate {

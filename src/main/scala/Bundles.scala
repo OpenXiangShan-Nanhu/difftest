@@ -375,6 +375,20 @@ class AIAEvent extends DifftestBaseBundle with HasValid {
   val stopei = UInt(64.W)
   val vstopei = UInt(64.W)
   val hgeip = UInt(64.W)
+  val mEidelivery = UInt(64.W)
+  val sEidelivery = UInt(64.W)
+  val vsEidelivery = UInt(64.W)
+  val mEithreshold = UInt(64.W)
+  val sEithreshold = UInt(64.W)
+  val vsEithreshold = UInt(64.W)
+  val mEip0 = UInt(64.W)
+  val sEip0 = UInt(64.W)
+  val vsEip0 = UInt(64.W)
+  val mEie0 = UInt(64.W)
+  val sEie0 = UInt(64.W)
+  val vsEie0 = UInt(64.W)
+  val mIprio0 = UInt(64.W)
+  val sIprio0 = UInt(64.W)
 }
 
 class SyncCustomMflushpwrEvent extends DifftestBaseBundle with HasValid {
