@@ -457,16 +457,26 @@ struct ExecutionGuide {
 };
 
 struct NonRegInterruptPending {
+  bool platformIRPMeipValid;
   bool platformIRPMeip;
+  bool platformIRPMtipValid;
   bool platformIRPMtip;
+  bool platformIRPMsipValid;
   bool platformIRPMsip;
+  bool platformIRPSeipValid;
   bool platformIRPSeip;
+  bool platformIRPStipValid;
   bool platformIRPStip;
+  bool platformIRPVseipValid;
   bool platformIRPVseip;
+  bool platformIRPVstipValid;
   bool platformIRPVstip;
-  bool fromAIAMeip;
-  bool fromAIASeip;
+  bool localCounterOverflowInterruptReqValid;
   bool localCounterOverflowInterruptReq;
+  bool fromAIAMeipValid;
+  bool fromAIAMeip;
+  bool fromAIASeipValid;
+  bool fromAIASeip;
 };
 
 struct FromAIA {

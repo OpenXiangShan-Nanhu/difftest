@@ -1619,16 +1619,26 @@ void Difftest::raise_trap(int trapCode) {
 void Difftest::do_non_reg_interrupt_pending() {
   if (dut->non_reg_interrupt_pending.valid) {
     struct NonRegInterruptPending ip;
+    ip.platformIRPMeipValid = dut->non_reg_interrupt_pending.platformIRPMeipValid;
     ip.platformIRPMeip = dut->non_reg_interrupt_pending.platformIRPMeip;
+    ip.platformIRPMtipValid = dut->non_reg_interrupt_pending.platformIRPMtipValid;
     ip.platformIRPMtip = dut->non_reg_interrupt_pending.platformIRPMtip;
+    ip.platformIRPMsipValid = dut->non_reg_interrupt_pending.platformIRPMsipValid;
     ip.platformIRPMsip = dut->non_reg_interrupt_pending.platformIRPMsip;
+    ip.platformIRPSeipValid = dut->non_reg_interrupt_pending.platformIRPSeipValid;
     ip.platformIRPSeip = dut->non_reg_interrupt_pending.platformIRPSeip;
+    ip.platformIRPStipValid = dut->non_reg_interrupt_pending.platformIRPStipValid;
     ip.platformIRPStip = dut->non_reg_interrupt_pending.platformIRPStip;
+    ip.platformIRPVseipValid = dut->non_reg_interrupt_pending.platformIRPVseipValid;
     ip.platformIRPVseip = dut->non_reg_interrupt_pending.platformIRPVseip;
+    ip.platformIRPVstipValid = dut->non_reg_interrupt_pending.platformIRPVstipValid;
     ip.platformIRPVstip = dut->non_reg_interrupt_pending.platformIRPVstip;
-    ip.fromAIAMeip = dut->non_reg_interrupt_pending.fromAIAMeip;
-    ip.fromAIASeip = dut->non_reg_interrupt_pending.fromAIASeip;
+    ip.localCounterOverflowInterruptReqValid = dut->non_reg_interrupt_pending.localCounterOverflowInterruptReqValid;
     ip.localCounterOverflowInterruptReq = dut->non_reg_interrupt_pending.localCounterOverflowInterruptReq;
+    ip.fromAIAMeipValid = dut->non_reg_interrupt_pending.fromAIAMeipValid;
+    ip.fromAIAMeip = dut->non_reg_interrupt_pending.fromAIAMeip;
+    ip.fromAIASeipValid = dut->non_reg_interrupt_pending.fromAIASeipValid;
+    ip.fromAIASeip = dut->non_reg_interrupt_pending.fromAIASeip;
 
     proxy->non_reg_interrupt_pending(ip);
     dut->non_reg_interrupt_pending.valid = 0;

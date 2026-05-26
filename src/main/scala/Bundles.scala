@@ -331,18 +331,27 @@ class RunaheadRedirectEvent extends DifftestBaseBundle with HasValid {
 }
 
 class NonRegInterruptPendingEvent extends DifftestBaseBundle with HasValid {
+  val platformIRPMeipValid = Bool()
   val platformIRPMeip = Bool()
+  val platformIRPMtipValid = Bool()
   val platformIRPMtip = Bool()
+  val platformIRPMsipValid = Bool()
   val platformIRPMsip = Bool()
+  val platformIRPSeipValid = Bool()
   val platformIRPSeip = Bool()
+  val platformIRPStipValid = Bool()
   val platformIRPStip = Bool()
+  val platformIRPVseipValid = Bool()
   val platformIRPVseip = Bool()
+  val platformIRPVstipValid = Bool()
   val platformIRPVstip = Bool()
-  val fromAIAMeip = Bool()
-  val fromAIASeip = Bool()
+  val localCounterOverflowInterruptReqValid = Bool()
   val localCounterOverflowInterruptReq = Bool()
+  val fromAIAMeipValid = Bool()
+  val fromAIAMeip = Bool()
+  val fromAIASeipValid = Bool()
+  val fromAIASeip = Bool()
 }
-
 class MhpmeventOverflowEvent extends DifftestBaseBundle with HasValid {
   val mhpmeventOverflow = UInt(64.W)
 }
