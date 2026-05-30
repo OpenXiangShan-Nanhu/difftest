@@ -22,6 +22,7 @@
 #include "ram.h"
 #include "spikedasm.h"
 #include <cstring>
+#include <vector>
 #if defined(CONFIG_DIFFTEST_SQUASH) && !defined(CONFIG_PLATFORM_FPGA)
 #include "svdpi.h"
 #endif // CONFIG_DIFFTEST_SQUASH && !CONFIG_PLATFORM_FPGA
@@ -666,6 +667,22 @@ void Difftest::do_first_instr_commit() {
 }
 
 #if defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_ARCHVECREGSTATE)
+static uint64_t get_vec_load_dut_data(Difftest *difftest, int index, DifftestLoadEvent load_event, int vdidx, int lane) {
+#ifdef CONFIG_DIFFTEST_COMMITDATA
+#ifdef CONFIG_DIFFTEST_SQUASH
+  return load_event.vecCommitData[VLENE_64 * vdidx + lane];
+#else
+  return difftest->get_dut()->commit_data[index].vecData[VLENE_64 * vdidx + lane];
+#endif // CONFIG_DIFFTEST_SQUASH
+#else
+  bool v0Wen = difftest->get_dut()->commit[index].v0wen && vdidx == 0;
+  auto vecNextPdest = difftest->get_dut()->commit[index].otherwpdest[vdidx];
+  uint64_t *dutRegPtr = v0Wen ? difftest->get_dut()->wb_v0[vecNextPdest].data :
+                                difftest->get_dut()->wb_vec[vecNextPdest].data;
+  return dutRegPtr[lane];
+#endif // CONFIG_DIFFTEST_COMMITDATA
+}
+
 void Difftest::do_vec_load_check(int index, DifftestLoadEvent load_event) {
   if (!enable_vec_load_goldenmem_check) {
     return;
@@ -685,105 +702,118 @@ void Difftest::do_vec_load_check(int index, DifftestLoadEvent load_event) {
 #endif // CONFIG_DIFFTEST_SQUASH
 
   bool reg_mismatch = false;
+  const size_t vecRegBytes = VLENE_64 * sizeof(uint64_t);
+  const size_t totalBytes = vdNum * vecRegBytes;
 
   for (int vdidx = 0; vdidx < vdNum; vdidx++) {
-#ifndef CONFIG_DIFFTEST_COMMITDATA
-    bool v0Wen = dut->commit[index].v0wen && vdidx == 0;
-    auto vecNextPdest = dut->commit[index].otherwpdest[vdidx];
-    uint64_t *dutRegPtr = v0Wen ? dut->wb_v0[vecNextPdest].data : dut->wb_vec[vecNextPdest].data;
-#endif // !CONFIG_DIFFTEST_COMMITDATA
-
     auto vecNextLdest = vecFirstLdest + vdidx;
 
     for (int i = 0; i < VLENE_64; i++) {
-#ifdef CONFIG_DIFFTEST_COMMITDATA
-#ifdef CONFIG_DIFFTEST_SQUASH
-      uint64_t dutRegData = load_event.vecCommitData[VLENE_64 * vdidx + i];
-#else
-      uint64_t dutRegData = dut->commit_data[index].vecData[VLENE_64 * vdidx + i];
-#endif // CONFIG_DIFFTEST_SQUASH
-#else
-      uint64_t dutRegData = dutRegPtr[i];
-#endif // CONFIG_DIFFTEST_COMMITDATA
-
+      uint64_t dutRegData = get_vec_load_dut_data(this, index, load_event, vdidx, i);
       uint64_t *refRegPtr = proxy->arch_vecreg(VLENE_64 * vecNextLdest + i);
       reg_mismatch |= dutRegData != *refRegPtr;
     }
   }
 
-  // ===============================================================
-  //                      Regs Mismatch handle
-  // ===============================================================
-  bool goldenmem_mismatch = false;
+  if (!reg_mismatch) {
+    return;
+  }
 
-  if (reg_mismatch) {
-    // ===============================================================
-    //                      Check golden memory
-    // ===============================================================
-    uint64_t *vec_goldenmem_regPtr = (uint64_t *)proxy->get_vec_goldenmem_reg();
+  if (totalBytes == 0) {
+    Info("Vector Load comparison failed and no destination vector register was recorded.\n");
+    return;
+  }
 
-    if (vec_goldenmem_regPtr == nullptr) {
-      Info("Vector Load comparison failed and no consistency check with golden mem was performed.\n");
+  {
+    auto packet = proxy->get_vec_goldenmem_packet();
+    if (packet == nullptr) {
+      Info("Vector Load comparison failed and no byte-level golden memory records were available.\n");
       return;
     }
 
-    for (int vdidx = 0; vdidx < vdNum; vdidx++) {
-#ifndef CONFIG_DIFFTEST_COMMITDATA
-      bool v0Wen = dut->commit[index].v0wen && vdidx == 0;
-      auto vecNextPdest = dut->commit[index].otherwpdest[vdidx];
-      uint64_t *dutRegPtr = v0Wen ? dut->wb_v0[vecNextPdest].data : dut->wb_vec[vecNextPdest].data;
-#endif // !CONFIG_DIFFTEST_COMMITDATA
+    auto records = packet->records;
+    size_t recordCount = packet->byte_count;
+    if (recordCount > 4096) {
+      Info("Vector Load golden memory packet byte_count overflow\n");
+      return;
+    }
 
-      for (int i = 0; i < VLENE_64; i++) {
-#ifdef CONFIG_DIFFTEST_COMMITDATA
-#ifdef CONFIG_DIFFTEST_SQUASH
-        uint64_t dutRegData = load_event.vecCommitData[VLENE_64 * vdidx + i];
-#else
-        uint64_t dutRegData = dut->commit_data[index].vecData[VLENE_64 * vdidx + i];
-#endif // CONFIG_DIFFTEST_SQUASH
-#else
-        uint64_t dutRegData = dutRegPtr[i];
-#endif // CONFIG_DIFFTEST_COMMITDATA
+    std::vector<uint8_t> loadMask(totalBytes, 0);
+    std::vector<uint8_t> refPatchMask(totalBytes, 0);
+    std::vector<uint8_t> refPatchData(totalBytes, 0);
+    bool byte_mismatch = false;
+    std::memset(packet->update_mask, 0, sizeof(packet->update_mask));
 
-        goldenmem_mismatch |= dutRegData != vec_goldenmem_regPtr[VLENE_64 * vdidx + i];
+    for (size_t i = 0; i < recordCount; i++) {
+      const auto& record = records[i];
+      if (record.dst_byte == UINT64_MAX) {
+        continue;
+      }
+      if (record.dst_byte >= totalBytes) {
+        byte_mismatch = true;
+        continue;
+      }
+
+      size_t vdidx = record.dst_byte / vecRegBytes;
+      size_t regByte = record.dst_byte % vecRegBytes;
+      size_t lane = regByte / sizeof(uint64_t);
+      size_t laneByte = regByte % sizeof(uint64_t);
+      uint64_t dutRegData = get_vec_load_dut_data(this, index, load_event, vdidx, lane);
+      uint8_t dutByte = (dutRegData >> (laneByte * 8)) & 0xff;
+      uint64_t *refRegPtr = proxy->arch_vecreg(VLENE_64 * (vecFirstLdest + vdidx) + lane);
+      uint8_t refByte = (*refRegPtr >> (laneByte * 8)) & 0xff;
+
+      loadMask[record.dst_byte] = 1;
+      if (dutByte == refByte) {
+        continue;
+      }
+
+      if (dutByte == record.golden_byte) {
+        packet->update_mask[i] = 1;
+        refPatchMask[record.dst_byte] = 1;
+        refPatchData[record.dst_byte] = dutByte;
+      } else {
+        byte_mismatch = true;
       }
     }
 
-    if (!goldenmem_mismatch) {
-      // ===============================================================
-      //                      sync memory and regs
-      // ===============================================================
-      proxy->vec_update_goldenmem();
+    for (int vdidx = 0; vdidx < vdNum; vdidx++) {
+      auto vecNextLdest = vecFirstLdest + vdidx;
+      for (int lane = 0; lane < VLENE_64; lane++) {
+        uint64_t dutRegData = get_vec_load_dut_data(this, index, load_event, vdidx, lane);
+        uint64_t *refRegPtr = proxy->arch_vecreg(VLENE_64 * vecNextLdest + lane);
+        for (size_t byte = 0; byte < sizeof(uint64_t); byte++) {
+          size_t dstByte = vdidx * vecRegBytes + lane * sizeof(uint64_t) + byte;
+          if (loadMask[dstByte])
+            continue;
 
-      for (int vdidx = 0; vdidx < vdNum; vdidx++) {
-#ifndef CONFIG_DIFFTEST_COMMITDATA
-        bool v0Wen = dut->commit[index].v0wen && vdidx == 0;
-        auto vecNextPdest = dut->commit[index].otherwpdest[vdidx];
-        uint64_t *dutRegPtr = v0Wen ? dut->wb_v0[vecNextPdest].data : dut->wb_vec[vecNextPdest].data;
-#endif // !CONFIG_DIFFTEST_COMMITDATA
-
-        auto vecNextLdest = vecFirstLdest + vdidx;
-
-        for (int i = 0; i < VLENE_64; i++) {
-#ifdef CONFIG_DIFFTEST_COMMITDATA
-#ifdef CONFIG_DIFFTEST_SQUASH
-          uint64_t dutRegData = load_event.vecCommitData[VLENE_64 * vdidx + i];
-#else
-          uint64_t dutRegData = dut->commit_data[index].vecData[VLENE_64 * vdidx + i];
-#endif // CONFIG_DIFFTEST_SQUASH
-#else
-          uint64_t dutRegData = dutRegPtr[i];
-#endif // CONFIG_DIFFTEST_COMMITDATA
-
-          uint64_t *refRegPtr = proxy->arch_vecreg(VLENE_64 * vecNextLdest + i);
-          *refRegPtr = dutRegData;
+          uint8_t dutByte = (dutRegData >> (byte * 8)) & 0xff;
+          uint8_t refByte = (*refRegPtr >> (byte * 8)) & 0xff;
+          byte_mismatch |= dutByte != refByte;
         }
       }
-
-      proxy->sync(true);
-    } else {
-      Info("Vector Load register and golden memory mismatch\n");
     }
+
+    if (!byte_mismatch) {
+      for (size_t dstByte = 0; dstByte < totalBytes; dstByte++) {
+        if (!refPatchMask[dstByte])
+          continue;
+
+        size_t vdidx = dstByte / vecRegBytes;
+        size_t regByte = dstByte % vecRegBytes;
+        size_t lane = regByte / sizeof(uint64_t);
+        size_t laneByte = regByte % sizeof(uint64_t);
+        uint64_t *refRegPtr = proxy->arch_vecreg(VLENE_64 * (vecFirstLdest + vdidx) + lane);
+        auto* refBytes = reinterpret_cast<uint8_t*>(refRegPtr);
+        refBytes[laneByte] = refPatchData[dstByte];
+      }
+      proxy->vec_update_goldenmem();
+      proxy->sync(true);
+      return;
+    }
+
+    Info("Vector Load byte-level register and golden memory mismatch\n");
+    return;
   }
 }
 #endif // CONFIG_DIFFTEST_LOADEVENT && CONFIG_DIFFTEST_ARCHVECREGSTATE
