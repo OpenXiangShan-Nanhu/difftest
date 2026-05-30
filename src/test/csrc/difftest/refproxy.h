@@ -18,6 +18,8 @@
 #define __NEMU_PROXY_H
 
 #include "common.h"
+#include <cstddef>
+#include <cstdint>
 #include <dlfcn.h>
 #include <unistd.h>
 
@@ -37,6 +39,32 @@ static const char *regs_name_csr[] = {
   "stvec", "mcause", "scause", "satp", "mip", "mie",
   "mscratch", "sscratch", "mideleg", "medeleg"
 };
+
+struct VecLoadGoldenByte {
+  uint64_t dst_byte;
+  uint64_t paddr;
+  uint8_t spike_byte;
+  uint8_t golden_byte;
+  uint64_t vreg;
+  uint64_t byte_offset;
+};
+static_assert(sizeof(VecLoadGoldenByte) == 40, "VecLoadGoldenByte ABI size mismatch");
+static_assert(offsetof(VecLoadGoldenByte, dst_byte) == 0, "VecLoadGoldenByte dst_byte offset mismatch");
+static_assert(offsetof(VecLoadGoldenByte, paddr) == 8, "VecLoadGoldenByte paddr offset mismatch");
+static_assert(offsetof(VecLoadGoldenByte, spike_byte) == 16, "VecLoadGoldenByte spike_byte offset mismatch");
+static_assert(offsetof(VecLoadGoldenByte, golden_byte) == 17, "VecLoadGoldenByte golden_byte offset mismatch");
+static_assert(offsetof(VecLoadGoldenByte, vreg) == 24, "VecLoadGoldenByte vreg offset mismatch");
+static_assert(offsetof(VecLoadGoldenByte, byte_offset) == 32, "VecLoadGoldenByte byte_offset offset mismatch");
+
+struct VecLoadGoldenPacket {
+  uint64_t byte_count;
+  uint64_t reserved;
+  VecLoadGoldenByte records[4096];
+  uint8_t update_mask[4096];
+};
+static_assert(offsetof(VecLoadGoldenPacket, byte_count) == 0, "VecLoadGoldenPacket byte_count offset mismatch");
+static_assert(offsetof(VecLoadGoldenPacket, records) == 16, "VecLoadGoldenPacket records offset mismatch");
+static_assert(offsetof(VecLoadGoldenPacket, update_mask) == 163856, "VecLoadGoldenPacket update_mask offset mismatch");
 
 static const char *regs_name_hcsr[] = {
   "v",
@@ -156,8 +184,8 @@ public:
   f(ref_sync_aia, difftest_sync_aia, void, void*)                                                           \
   f(ref_sync_custom_mflushpwr, difftest_sync_custom_mflushpwr, void, bool)                                  \
   f(ref_vec_fof_sync, difftest_vec_fof_sync, void, void*)                                                   \
-  f(ref_get_vec_load_vdNum, difftest_get_vec_load_vdNum, int, )                                                 \
-  f(ref_get_vec_load_dual_goldenmem_reg, difftest_get_vec_load_dual_goldenmem_reg, void*, )                                                       \
+  f(ref_get_vec_load_vdNum, difftest_get_vec_load_vdNum, int, )                                             \
+  f(ref_get_vec_load_dual_goldenmem_reg, difftest_get_vec_load_dual_goldenmem_reg, void*, )                 \
   f(ref_update_vec_load_goldenmen, difftest_update_vec_load_pmem, void, )
 #define RefFunc(func, ret, ...) ret func(__VA_ARGS__)
 #define DeclRefFunc(this_func, dummy, ret, ...) RefFunc((*this_func), ret, __VA_ARGS__);
@@ -326,13 +354,8 @@ public:
     }
   }
 
-  inline void *get_vec_goldenmem_reg() {
-    if (ref_get_vec_load_dual_goldenmem_reg) {
-      return ref_get_vec_load_dual_goldenmem_reg();
-    } else {
-      Info("Does not support the get vec load goldenmem reg.\n");
-      return nullptr;
-    }
+  inline VecLoadGoldenPacket *get_vec_goldenmem_packet() {
+    return ref_get_vec_load_dual_goldenmem_reg ? (VecLoadGoldenPacket *)ref_get_vec_load_dual_goldenmem_reg() : nullptr;
   }
 
   inline void vec_update_goldenmem() {
