@@ -155,6 +155,7 @@ public:
   f(ref_get_store_event_other_info, difftest_get_store_event_other_info, void, void*)                       \
   f(ref_sync_aia, difftest_sync_aia, void, void*)                                                           \
   f(ref_sync_custom_mflushpwr, difftest_sync_custom_mflushpwr, void, bool)                                  \
+  f(ref_vec_fof_sync, difftest_vec_fof_sync, void, void*)                                                   \
   f(ref_get_vec_load_vdNum, difftest_get_vec_load_vdNum, int, )                                                 \
   f(ref_get_vec_load_dual_goldenmem_reg, difftest_get_vec_load_dual_goldenmem_reg, void*, )                                                       \
   f(ref_update_vec_load_goldenmen, difftest_update_vec_load_pmem, void, )
@@ -303,6 +304,12 @@ public:
       ref_sync_custom_mflushpwr(l2FlushDone);
     } else {
       printf("Does not support sync custom CSR mflushpwr.\n");
+    }
+  }
+
+  inline void vec_fof_sync(void *info) {
+    if (ref_vec_fof_sync) {
+      ref_vec_fof_sync(info);
     }
   }
 

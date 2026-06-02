@@ -376,3 +376,11 @@ class AIAEvent extends DifftestBaseBundle with HasValid {
 class SyncCustomMflushpwrEvent extends DifftestBaseBundle with HasValid {
   val l2FlushDone = Bool()
 }
+
+class VecFofExcpSyncEvent extends DifftestBaseBundle with HasValid {
+  val fofVl  = UInt(8.W)
+  val fofEew = UInt(3.W)
+  val vdNum  = UInt(4.W)
+  val vdBase = UInt(5.W)
+}
+

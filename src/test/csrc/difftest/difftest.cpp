@@ -428,6 +428,9 @@ inline int Difftest::check_all() {
         if (do_instr_commit(i)) {
           return 1;
         }
+#ifdef CONFIG_DIFFTEST_VECFOFSYNCEVENT
+        do_vec_fof_sync();
+#endif
 #ifndef CONFIG_DIFFTEST_SQUASH
         do_load_check(i);
         if (do_store_check()) {
@@ -1692,6 +1695,29 @@ void Difftest::do_sync_custom_mflushpwr() {
   if (dut->sync_custom_mflushpwr.valid) {
     proxy->sync_custom_mflushpwr(dut->sync_custom_mflushpwr.l2FlushDone);
     dut->sync_custom_mflushpwr.valid = 0;
+  }
+}
+#endif
+
+#ifdef CONFIG_DIFFTEST_VECFOFSYNCEVENT
+void Difftest::do_vec_fof_sync() {
+  for (int idx = 0; idx < CONFIG_DIFF_VEC_FOF_SYNC_WIDTH; idx++) {
+    if (!dut->vec_fof_sync[idx].valid)
+      continue;
+    struct VecFofSyncInfo info;
+    info.fofVl = dut->vec_fof_sync[idx].fofVl;
+    info.fofEew = dut->vec_fof_sync[idx].fofEew;
+    info.vdNum = dut->vec_fof_sync[idx].vdNum;
+    info.vdBase = dut->vec_fof_sync[idx].vdBase;
+#ifdef CONFIG_DIFFTEST_ARCHVECREGSTATE
+    for (uint32_t vd = 0; vd < info.vdNum; vd++) {
+      uint32_t regIdx = info.vdBase + vd;
+      info.data[2 * vd] = dut->regs_vec.value[regIdx * 2];
+      info.data[2 * vd + 1] = dut->regs_vec.value[regIdx * 2 + 1];
+    }
+#endif
+    proxy->vec_fof_sync(&info);
+    dut->vec_fof_sync[idx].valid = 0;
   }
 }
 #endif
