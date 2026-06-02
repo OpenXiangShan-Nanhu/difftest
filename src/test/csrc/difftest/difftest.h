@@ -230,6 +230,14 @@ private:
   void display_commit_instr(int index, CommitTrace *trace, bool is_retire);
 };
 
+struct VecFofSyncInfo {
+  uint32_t fofVl;
+  uint32_t fofEew;
+  uint32_t vdNum;
+  uint32_t vdBase;
+  uint64_t data[16];
+};
+
 class Difftest {
 public:
   DiffTestState *dut;
@@ -483,6 +491,9 @@ protected:
 #endif
 #ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
   void do_sync_custom_mflushpwr();
+#endif
+#ifdef CONFIG_DIFFTEST_VECFOFSYNCEVENT
+  void do_vec_fof_sync();
 #endif
 #ifdef CONFIG_DIFFTEST_REPLAY
   struct {

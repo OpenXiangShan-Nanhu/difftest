@@ -480,6 +480,10 @@ class DiffSyncCustomMflushpwrEvent extends SyncCustomMflushpwrEvent with Difftes
   override val desiredCppName: String = "sync_custom_mflushpwr"
 }
 
+class DiffVecFofSyncEvent extends VecFofExcpSyncEvent with DifftestBundle with DifftestWithIndex {
+  override val desiredCppName: String = "vec_fof_sync"
+}
+
 class DiffTraceInfo(config: GatewayConfig) extends TraceInfo with DifftestBundle {
   override val desiredCppName: String = "trace_info"
 
