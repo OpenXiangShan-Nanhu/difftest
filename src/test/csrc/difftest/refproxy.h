@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <dlfcn.h>
+#include <cstring>
 #include <unistd.h>
 
 /* clang-format off */
@@ -512,6 +513,8 @@ struct NonRegInterruptPending {
 };
 
 struct FromAIA {
+  static constexpr int IMSIC_EIX_NUM = 32;
+
   uint64_t mtopei;
   uint64_t stopei;
   uint64_t vstopei;
@@ -522,12 +525,12 @@ struct FromAIA {
   uint64_t mEithreshold;
   uint64_t sEithreshold;
   uint64_t vsEithreshold;
-  uint64_t mEip0;
-  uint64_t sEip0;
-  uint64_t vsEip0;
-  uint64_t mEie0;
-  uint64_t sEie0;
-  uint64_t vsEie0;
+  uint64_t mEip[IMSIC_EIX_NUM];
+  uint64_t sEip[IMSIC_EIX_NUM];
+  uint64_t vsEip[IMSIC_EIX_NUM];
+  uint64_t mEie[IMSIC_EIX_NUM];
+  uint64_t sEie[IMSIC_EIX_NUM];
+  uint64_t vsEie[IMSIC_EIX_NUM];
   uint64_t mIprio0;
   uint64_t sIprio0;
 };

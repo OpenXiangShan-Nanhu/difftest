@@ -1732,7 +1732,7 @@ void Difftest::do_raise_critical_error() {
 #ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
 void Difftest::do_sync_aia() {
   if (dut->sync_aia.valid) {
-    struct FromAIA aia;
+    struct FromAIA aia = {};
     aia.mtopei = dut->sync_aia.mtopei;
     aia.stopei = dut->sync_aia.stopei;
     aia.vstopei = dut->sync_aia.vstopei;
@@ -1743,12 +1743,14 @@ void Difftest::do_sync_aia() {
     aia.mEithreshold = dut->sync_aia.mEithreshold;
     aia.sEithreshold = dut->sync_aia.sEithreshold;
     aia.vsEithreshold = dut->sync_aia.vsEithreshold;
-    aia.mEip0 = dut->sync_aia.mEip0;
-    aia.sEip0 = dut->sync_aia.sEip0;
-    aia.vsEip0 = dut->sync_aia.vsEip0;
-    aia.mEie0 = dut->sync_aia.mEie0;
-    aia.sEie0 = dut->sync_aia.sEie0;
-    aia.vsEie0 = dut->sync_aia.vsEie0;
+    for (int i = 0; i < FromAIA::IMSIC_EIX_NUM; i++) {
+      aia.mEip[i] = dut->sync_aia.mEip[i];
+      aia.sEip[i] = dut->sync_aia.sEip[i];
+      aia.vsEip[i] = dut->sync_aia.vsEip[i];
+      aia.mEie[i] = dut->sync_aia.mEie[i];
+      aia.sEie[i] = dut->sync_aia.sEie[i];
+      aia.vsEie[i] = dut->sync_aia.vsEie[i];
+    }
     aia.mIprio0 = dut->sync_aia.mIprio0;
     aia.sIprio0 = dut->sync_aia.sIprio0;
     proxy->sync_aia(aia);
