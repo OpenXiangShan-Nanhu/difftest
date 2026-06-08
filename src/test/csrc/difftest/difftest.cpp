@@ -429,7 +429,8 @@ inline int Difftest::check_all() {
           return 1;
         }
 #ifdef CONFIG_DIFFTEST_VECFOFSYNCEVENT
-        do_vec_fof_sync();
+        // only fof loads (opcode=0x07, mop=00, lumop=10000) should trigger sync
+        if ((dut->commit[i].instr & 0x1f0007f) == 0x1000007) do_vec_fof_sync();
 #endif
 #ifndef CONFIG_DIFFTEST_SQUASH
         do_load_check(i);
@@ -1712,6 +1713,7 @@ void Difftest::do_vec_fof_sync() {
 #ifdef CONFIG_DIFFTEST_ARCHVECREGSTATE
     for (uint32_t vd = 0; vd < info.vdNum; vd++) {
       uint32_t regIdx = info.vdBase + vd;
+      if (regIdx >= 32 || 2 * vd + 1 >= 16) break;
       info.data[2 * vd] = dut->regs_vec.value[regIdx * 2];
       info.data[2 * vd + 1] = dut->regs_vec.value[regIdx * 2 + 1];
     }
