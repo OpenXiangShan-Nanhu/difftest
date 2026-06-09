@@ -483,6 +483,8 @@ struct NonRegInterruptPending {
   bool fromAIAMeip;
   bool fromAIASeipValid;
   bool fromAIASeip;
+  bool stimeValid;
+  uint64_t stime;
 };
 
 struct FromAIA {
