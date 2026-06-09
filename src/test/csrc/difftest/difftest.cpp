@@ -1643,6 +1643,8 @@ void Difftest::do_non_reg_interrupt_pending() {
     ip.fromAIAMeip = dut->non_reg_interrupt_pending.fromAIAMeip;
     ip.fromAIASeipValid = dut->non_reg_interrupt_pending.fromAIASeipValid;
     ip.fromAIASeip = dut->non_reg_interrupt_pending.fromAIASeip;
+    ip.stimeValid = dut->non_reg_interrupt_pending.stimeValid;
+    ip.stime = dut->non_reg_interrupt_pending.stime;
 
     proxy->non_reg_interrupt_pending(ip);
     dut->non_reg_interrupt_pending.valid = 0;

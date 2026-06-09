@@ -351,6 +351,8 @@ class NonRegInterruptPendingEvent extends DifftestBaseBundle with HasValid {
   val fromAIAMeip = Bool()
   val fromAIASeipValid = Bool()
   val fromAIASeip = Bool()
+  val stimeValid = Bool()
+  val stime = UInt(64.W)
 }
 class MhpmeventOverflowEvent extends DifftestBaseBundle with HasValid {
   val mhpmeventOverflow = UInt(64.W)
