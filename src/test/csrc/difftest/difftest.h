@@ -234,6 +234,7 @@ struct VecFofSyncInfo {
   uint32_t fofVl;
   uint32_t fofEew;
   uint32_t vdNum;
+  uint32_t vdRegNum;
   uint32_t vdBase;
   uint64_t data[16];
 };
