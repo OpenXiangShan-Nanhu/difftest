@@ -21,6 +21,7 @@
 #include "goldenmem.h"
 #include "ram.h"
 #include "spikedasm.h"
+#include <cstring>
 #if defined(CONFIG_DIFFTEST_SQUASH) && !defined(CONFIG_PLATFORM_FPGA)
 #include "svdpi.h"
 #endif // CONFIG_DIFFTEST_SQUASH && !CONFIG_PLATFORM_FPGA
@@ -1711,9 +1712,12 @@ void Difftest::do_vec_fof_sync() {
     info.fofVl = dut->vec_fof_sync[idx].fofVl;
     info.fofEew = dut->vec_fof_sync[idx].fofEew;
     info.vdNum = dut->vec_fof_sync[idx].vdNum;
+    info.vdRegNum = dut->vec_fof_sync[idx].vdRegNum;
     info.vdBase = dut->vec_fof_sync[idx].vdBase;
+    memset(info.data, 0, sizeof(info.data));
 #ifdef CONFIG_DIFFTEST_ARCHVECREGSTATE
-    for (uint32_t vd = 0; vd < info.vdNum; vd++) {
+    uint32_t totalRegs = info.vdNum * info.vdRegNum;
+    for (uint32_t vd = 0; vd < totalRegs; vd++) {
       uint32_t regIdx = info.vdBase + vd;
       if (regIdx >= 32 || 2 * vd + 1 >= 16) break;
       info.data[2 * vd] = dut->regs_vec.value[regIdx * 2];

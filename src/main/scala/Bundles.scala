@@ -380,9 +380,9 @@ class SyncCustomMflushpwrEvent extends DifftestBaseBundle with HasValid {
 }
 
 class VecFofExcpSyncEvent extends DifftestBaseBundle with HasValid {
-  val fofVl  = UInt(8.W)
-  val fofEew = UInt(3.W)
-  val vdNum  = UInt(4.W)
-  val vdBase = UInt(5.W)
+  val fofVl    = UInt(8.W)
+  val fofEew   = UInt(3.W)
+  val vdNum    = UInt(4.W)
+  val vdRegNum = UInt(4.W)
+  val vdBase   = UInt(5.W)
 }
-
