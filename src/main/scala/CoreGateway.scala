@@ -26,10 +26,21 @@ object CoreGateway {
   }
 }
 
-class CoreGatewayBundle extends Bundle {
+class CoreGatewayBundle(
+  val commitWidth: Int,
+  val intWbPortNum: Int,
+  val intPhyRegNum: Int,
+  val fpWbPortNum: Int,
+  val fpPhyRegNum: Int,
+  val vecWbPortNum: Int,
+  val vecPhyRegNum: Int,
+  val v0WbPortNum: Int,
+  val v0PhyRegNum: Int,
+) extends Bundle {
+  val phyRegNumMax: Int = Array(intPhyRegNum, fpPhyRegNum, vecPhyRegNum, v0PhyRegNum).max
   // Rob
   val instrCommitDelayCnt: Int = 3
-  val instrCommit = Vec(8, new DiffInstrCommit(128))
+  val instrCommit = Vec(commitWidth, new DiffInstrCommit(phyRegNumMax))
 
   // val loadEventDelayCnt: Int = 3
   // val loadEvent = Vec(8, new DiffLoadEvent)
@@ -46,19 +57,19 @@ class CoreGatewayBundle extends Bundle {
 
   // WbDataPath
   val intWritebackDelayCnt: Int = 0
-  val intWriteback = Vec(9, new DiffIntWriteback(128))
+  val intWriteback = Vec(intWbPortNum, new DiffIntWriteback(intPhyRegNum))
 
   val fpWritebackDelayCnt: Int = 0
-  val fpWriteback = Vec(9, new DiffFpWriteback(160))
+  val fpWriteback = Vec(fpWbPortNum, new DiffFpWriteback(fpPhyRegNum))
 
   val vecWritebackDelayCnt: Int = 0
-  val vecWriteback = Vec(9, new DiffVecWriteback(160))
+  val vecWriteback = Vec(vecWbPortNum, new DiffVecWriteback(vecPhyRegNum))
 
   val vecV0WritebackDelayCnt: Int = 0
-  val vecV0Writeback = Vec(7, new DiffVecV0Writeback(22))
+  val vecV0Writeback = Vec(v0WbPortNum, new DiffVecV0Writeback(v0PhyRegNum))
 
   // NewCSR
-  val archEventDelayCnt: Int = 3
+  val archEventDelayCnt: Int = 3                                                                                               
   val archEvent = new DiffArchEvent
 
   val csrStateDelayCnt: Int = 0
