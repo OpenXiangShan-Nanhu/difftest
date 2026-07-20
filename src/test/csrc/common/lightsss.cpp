@@ -1,5 +1,17 @@
 #include "lightsss.h"
 
+static LightSSS *g_lightsss = nullptr;
+
+static void fatal_signal_handler(int signo) {
+  // On fatal signal, kill all fork children before dying
+  if (g_lightsss) {
+    g_lightsss->do_clear();
+  }
+  // Re-raise the signal with default handler to get proper core dump
+  signal(signo, SIG_DFL);
+  raise(signo);
+}
+
 ForkShareMemory::ForkShareMemory() {
   if ((key_n = ftok(".", 's') < 0)) {
     perror("Fail to ftok\n");
@@ -46,6 +58,16 @@ void ForkShareMemory::shwait() {
 }
 
 int LightSSS::do_fork() {
+  // Register fatal signal handlers on first invocation so fork children
+  // are cleaned up even when the parent dies from an assertion/SIGABRT.
+  if (g_lightsss == nullptr) {
+    g_lightsss = this;
+    signal(SIGABRT, fatal_signal_handler);
+    signal(SIGSEGV, fatal_signal_handler);
+    signal(SIGBUS,  fatal_signal_handler);
+    signal(SIGFPE,  fatal_signal_handler);
+    signal(SIGILL,  fatal_signal_handler);
+  }
   //kill the oldest blocked checkpoint process
   if (slotCnt == SLOT_SIZE) {
     pid_t temp = pidSlot.back();
