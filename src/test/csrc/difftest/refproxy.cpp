@@ -70,7 +70,7 @@ void *SpikeProxy::load_handler() {
   const char *env = SPIKE_ENV_VARIABLE;
   const char *file_path = SPIKE_SO_FILENAME;
   Info("The reference model is %s\n", difftest_ref_so);
-  int mode = RTLD_LAZY | RTLD_DEEPBIND;
+  int mode = RTLD_NOW | RTLD_DEEPBIND;
   void *so_handler = (NUM_CORES > 1) ? dlmopen(LM_ID_NEWLM, difftest_ref_so, mode) : dlopen(difftest_ref_so, mode);
   check_and_assert(so_handler);
   return so_handler;

@@ -117,7 +117,8 @@ public:
   f(ref_guided_exec, difftest_guided_exec, void, void*)                                                     \
   f(ref_memcpy_init, difftest_memcpy_init, void, uint64_t, void*, size_t, bool)                             \
   f(disambiguation_state, difftest_disambiguation_state, int, )                                             \
-  f(ref_non_reg_interrupt_pending, difftest_non_reg_interrupt_pending, void, void*)
+  f(ref_non_reg_interrupt_pending, difftest_non_reg_interrupt_pending, void, void*)                         \
+  f(ref_raise_nmi, difftest_raise_nmi, void, uint64_t, uint64_t)
 #define RefFunc(func, ret, ...) ret func(__VA_ARGS__)
 #define DeclRefFunc(this_func, dummy, ret, ...) RefFunc((*this_func), ret, __VA_ARGS__);
 /* clang-format on */
@@ -188,6 +189,13 @@ public:
     }
   }
 
+  inline void raise_nmi(uint64_t cause, uint64_t epc) {
+    if (!ref_raise_nmi) {
+      fprintf(stderr, "Reference model does not provide difftest_raise_nmi\n");
+      abort();
+    }
+    ref_raise_nmi(cause, epc);
+  }
 
   inline void guided_exec(struct ExecutionGuide &guide) {
     return ref_guided_exec ? ref_guided_exec(&guide) : ref_exec(1);

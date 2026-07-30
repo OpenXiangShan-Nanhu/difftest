@@ -457,10 +457,14 @@ inline int Difftest::check_all() {
 
 void Difftest::do_interrupt() {
   state->record_interrupt(dut->event.exceptionPC, dut->event.exceptionInst, dut->event.interrupt);
-  struct InterruptDelegate intrDeleg;
-  intrDeleg.irToHS = dut->event.irToHS;
-  intrDeleg.irToVS = dut->event.irToVS;
-  proxy->raise_intr(dut->event.interrupt | (1ULL << 63));
+  if (dut->event.hasNMI) {
+    proxy->raise_nmi(dut->event.interrupt, dut->event.exceptionPC);
+  } else {
+    struct InterruptDelegate intrDeleg;
+    intrDeleg.irToHS = dut->event.irToHS;
+    intrDeleg.irToVS = dut->event.irToVS;
+    proxy->raise_intr(dut->event.interrupt | (1ULL << 63));
+  }
   progress = true;
 }
 
