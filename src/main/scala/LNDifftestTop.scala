@@ -26,10 +26,24 @@ import difftest.gateway.Gateway.isFPGA
 
 class LNDifftestTop(
   coreNum       : Int,
-  MEM_BASE      : String
+  MEM_BASE      : String,
+  commitWidth   : Int,
+  intPhyRegNum  : Int,
+  fpPhyRegNum   : Int,
+  vecPhyRegNum  : Int,
+  v0PhyRegNum   : Int
 ) extends Module {
   
-  val monitorSeq = Seq.tabulate(coreNum)(idx => Module(new DifftestMonitor(idx, s"XlnFpgaTop.soc", "")))
+  val monitorSeq = Seq.tabulate(coreNum)(idx => Module(new DifftestMonitor(
+                                                            ccid = idx,
+                                                            path = s"XlnFpgaTop.soc",
+                                                            prefix = "",
+                                                            commitWidth   = commitWidth,
+                                                            intPhyRegNum  = intPhyRegNum,
+                                                            fpPhyRegNum   = fpPhyRegNum,
+                                                            vecPhyRegNum  = vecPhyRegNum,
+                                                            v0PhyRegNum   = v0PhyRegNum
+                                                          )))
   for(idx <- 0 until coreNum) {
     monitorSeq(idx).suggestName(s"difftest_core_gateway_$idx")
     dontTouch(monitorSeq(idx).io)
