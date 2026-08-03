@@ -533,7 +533,10 @@ object DifftestModule {
   ): T = {
     val difftest: T = Wire(gen)
     if (enabled) {
-      Gateway(gen, delay) := difftest
+      // dontCare shells only register the interface for generated-src /
+      // DiffTestState layout. Their DPI sink must stay disabled so they do
+      // not overwrite real DUT probes (e.g. Core_sv CoreDiff* DPI).
+      Gateway(gen, delay, enableSink = !dontCare) := difftest
     }
     if (dontCare) {
       difftest := DontCare

@@ -160,15 +160,26 @@ object Gateway {
     config.check()
   }
 
-  def apply[T <: DifftestBundle](gen: T, delay: Int): T = {
+  /**
+   * @param enableSink when false, still elaborates the DPI sink (so DPIC.collect
+   *                   emits the C function) but keeps control.enable low so the
+   *                   shell never writes into DiffTestState. Used by scheme-C
+   *                   type registration: real payloads come from hand-written
+   *                   Core Diff DPI, not these zeroed shells.
+   */
+  def apply[T <: DifftestBundle](gen: T, delay: Int, enableSink: Boolean = true): T = {
     val bundle = WireInit(0.U.asTypeOf(gen))
     if (!config.traceLoad) {
       if (config.needEndpoint) {
-        val packed = WireInit(bundle.asUInt)
-        DifftestWiring.addSource(packed, s"gateway_${instanceWithDelay.length}", config.hierarchicalWiring)
+        // Endpoint path: zeroed source would still pollute the packed gateway
+        // bus. Skip wiring when sink is disabled (type registration only).
+        if (enableSink) {
+          val packed = WireInit(bundle.asUInt)
+          DifftestWiring.addSource(packed, s"gateway_${instanceWithDelay.length}", config.hierarchicalWiring)
+        }
       } else {
         val control = WireInit(0.U.asTypeOf(new GatewaySinkControl(config)))
-        control.enable := true.B
+        control.enable := enableSink.B
         GatewaySink(control, Delayer(bundle, delay).genValidBundle, config)
       }
     }
