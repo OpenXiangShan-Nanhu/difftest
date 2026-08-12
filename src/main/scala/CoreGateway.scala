@@ -161,6 +161,7 @@ class CoreGatewayBundle(
       (archIntRegState, archIntRegDelayCnt) :+
       (archFpRegState, archFpRegDelayCnt) :+
       (nonRegInterruptPendingEvent, nonRegInterruptPendingEventDelayCnt) :+
+      (syncAIAEvent, syncAIAEventDelayCnt) :+
       (trapEvent, trapEventDelayCnt) :+
       (lrscEvent, lrscEventDelayCnt)
   }
