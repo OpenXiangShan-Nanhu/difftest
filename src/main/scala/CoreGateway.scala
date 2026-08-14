@@ -79,7 +79,7 @@ class CoreGatewayBundle extends Bundle {
   val nonRegInterruptPendingEventDelayCnt: Int = 0
   val nonRegInterruptPendingEvent = new DiffNonRegInterruptPendingEvent
 
-  val syncAIAEventDelayCnt: Int = 0
+  val syncAIAEventDelayCnt: Int = 1
   val syncAIAEvent = new DiffSyncAIAEvent
 
   // // DCache

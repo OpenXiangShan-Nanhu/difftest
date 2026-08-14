@@ -419,9 +419,6 @@ inline int Difftest::check_all() {
 #ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
   do_raise_critical_error();
 #endif
-#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
-  do_sync_aia();
-#endif
 #ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
   do_sync_custom_mflushpwr();
 #endif
@@ -462,6 +459,10 @@ inline int Difftest::check_all() {
       }
     }
   }
+
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+  do_sync_aia();
+#endif
 
   if (update_delayed_writeback()) {
     return 1;
