@@ -61,6 +61,10 @@ class ArchEvent extends DifftestBaseBundle with HasValid {
   val virtualInterruptIsHvictlInject = Bool()
   val irToHS = Bool()
   val irToVS = Bool()
+  val interruptSnapshotValid = Bool()
+  val interruptCandidates = UInt(64.W)
+  val nonRegInterruptPending = UInt(64.W)
+  val nonRegInterruptPendingMask = UInt(64.W)
 }
 
 class InstrCommit(val numPhyRegs: Int = 32) extends DifftestBaseBundle with HasValid {
@@ -353,6 +357,12 @@ class NonRegInterruptPendingEvent extends DifftestBaseBundle with HasValid {
   val fromAIASeip = Bool()
   val stimeValid = Bool()
   val stime = UInt(64.W)
+  // Difftest-only state used to align asynchronous pending inputs with CSR reads.
+  val rawPending = UInt(64.W)
+  val rawPendingMask = UInt(64.W)
+  val softwareSeip = Bool()
+  val csrReadSnapshotValid = Bool()
+  val csrReadSnapshotFlush = Bool()
 }
 class MhpmeventOverflowEvent extends DifftestBaseBundle with HasValid {
   val mhpmeventOverflow = UInt(64.W)

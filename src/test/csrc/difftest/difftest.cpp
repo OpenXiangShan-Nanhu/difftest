@@ -40,6 +40,94 @@ typedef union {
     uint8_t u8[8];
 } uint64_splitter;
 
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+namespace {
+
+constexpr uint64_t irq_bit(unsigned cause) {
+  return 1ULL << cause;
+}
+
+constexpr uint64_t kMsi = irq_bit(3);
+constexpr uint64_t kSti = irq_bit(5);
+constexpr uint64_t kVsti = irq_bit(6);
+constexpr uint64_t kMti = irq_bit(7);
+constexpr uint64_t kSei = irq_bit(9);
+constexpr uint64_t kVsei = irq_bit(10);
+constexpr uint64_t kMei = irq_bit(11);
+constexpr uint64_t kLcofi = irq_bit(13);
+constexpr uint64_t kNonRegInterruptSnapshotMask = kMsi | kSti | kVsti | kMti | kSei | kVsei | kMei | kLcofi;
+
+NonRegInterruptPending make_pending_update(uint64_t valid_mask, uint64_t pending) {
+  NonRegInterruptPending ip = {};
+  ip.platformIRPMeipValid = (valid_mask & kMei) != 0;
+  ip.platformIRPMeip = (pending & kMei) != 0;
+  ip.platformIRPMtipValid = (valid_mask & kMti) != 0;
+  ip.platformIRPMtip = (pending & kMti) != 0;
+  ip.platformIRPMsipValid = (valid_mask & kMsi) != 0;
+  ip.platformIRPMsip = (pending & kMsi) != 0;
+  ip.platformIRPSeipValid = (valid_mask & kSei) != 0;
+  ip.platformIRPSeip = (pending & kSei) != 0;
+  ip.platformIRPStipValid = (valid_mask & kSti) != 0;
+  ip.platformIRPStip = (pending & kSti) != 0;
+  ip.platformIRPVseipValid = (valid_mask & kVsei) != 0;
+  ip.platformIRPVseip = (pending & kVsei) != 0;
+  ip.platformIRPVstipValid = (valid_mask & kVsti) != 0;
+  ip.platformIRPVstip = (pending & kVsti) != 0;
+  ip.localCounterOverflowInterruptReqValid = (valid_mask & kLcofi) != 0;
+  ip.localCounterOverflowInterruptReq = (pending & kLcofi) != 0;
+  return ip;
+}
+
+constexpr uint32_t kCsrOpcode = 0x73;
+constexpr uint32_t kCsrMip = 0x344;
+constexpr uint32_t kCsrSip = 0x144;
+constexpr uint32_t kCsrMvip = 0x309;
+constexpr uint32_t kCsrHip = 0x644;
+constexpr uint32_t kCsrVsip = 0x244;
+
+bool is_pending_csr_address(uint32_t address) {
+  return address == kCsrMip || address == kCsrSip || address == kCsrMvip ||
+         address == kCsrHip || address == kCsrVsip;
+}
+
+bool is_pending_csr_read(uint32_t instruction) {
+  if ((instruction & 0x7f) != kCsrOpcode || !is_pending_csr_address((instruction >> 20) & 0xfff)) {
+    return false;
+  }
+
+  const uint32_t funct3 = (instruction >> 12) & 0x7;
+  switch (funct3) {
+  case 0x1: // CSRRW: rd=x0 suppresses the read
+  case 0x5: // CSRRWI: rd=x0 suppresses the read
+    return ((instruction >> 7) & 0x1f) != 0;
+  case 0x2: // CSRRS
+  case 0x3: // CSRRC
+  case 0x6: // CSRRSI
+  case 0x7: // CSRRCI
+    return true;
+  default:
+    return false;
+  }
+}
+
+bool is_pending_csr_write(uint32_t instruction) {
+  if ((instruction & 0x7f) != kCsrOpcode || !is_pending_csr_address((instruction >> 20) & 0xfff)) {
+    return false;
+  }
+
+  const uint32_t funct3 = (instruction >> 12) & 0x7;
+  if (funct3 == 0x1 || funct3 == 0x5) { // CSRRW/CSRRWI always write
+    return true;
+  }
+  if (funct3 == 0x2 || funct3 == 0x3 || funct3 == 0x6 || funct3 == 0x7) {
+    return ((instruction >> 15) & 0x1f) != 0;
+  }
+  return false;
+}
+
+} // namespace
+#endif
+
 int difftest_init() {
 #ifdef CONFIG_DIFFTEST_PERFCNT
   difftest_perfcnt_init();
@@ -394,6 +482,9 @@ inline int Difftest::check_all() {
 
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
   do_non_reg_interrupt_pending();
+  if (csr_snapshot_mismatch) {
+    return 1;
+  }
 #endif
 
 #ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
@@ -411,6 +502,9 @@ inline int Difftest::check_all() {
 
   num_commit = 0; // reset num_commit this cycle to 0
   if (dut->event.valid) {
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+    csr_read_snapshot.valid = false;
+#endif
     // interrupt has a higher priority than exception
     dut->event.interrupt ? do_interrupt() : do_exception();
     dut->event.valid = 0;
@@ -464,7 +558,11 @@ inline int Difftest::check_all() {
     return 1;
   }
 
-  if (proxy->compare(dut) || pc_mismatch) {
+  if (proxy->compare(dut) || pc_mismatch
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+      || interrupt_mismatch || csr_snapshot_mismatch
+#endif
+  ) {
 #ifdef FUZZING
     if (in_disambiguation_state()) {
       Info("Mismatch detected with a disambiguation state at pc = 0x%lx.\n", dut->trap.pc);
@@ -484,6 +582,28 @@ inline int Difftest::check_all() {
 
 void Difftest::do_interrupt() {
   state->record_interrupt(dut->event.exceptionPC, dut->event.exceptionInst, dut->event.interrupt);
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+  uint64_t restore_mask = 0;
+  const uint64_t latest_pending = latest_non_reg_interrupt_pending;
+  if (dut->event.interruptSnapshotValid) {
+    const uint64_t cause = dut->event.interrupt;
+    if (cause >= 64 || !(dut->event.interruptCandidates & irq_bit(cause))) {
+      Info("Core %d interrupt candidate mismatch: cause=%lu candidates=0x%016lx\n", this->id, cause,
+           dut->event.interruptCandidates);
+      interrupt_mismatch = true;
+    }
+
+    const uint64_t accepted_pending = dut->event.nonRegInterruptPending;
+    const uint64_t snapshot_mask = dut->event.nonRegInterruptPendingMask & kNonRegInterruptSnapshotMask;
+    const uint64_t latest_mask = latest_non_reg_interrupt_pending_mask & kNonRegInterruptSnapshotMask;
+    const uint64_t rewind_domain = snapshot_mask | latest_mask;
+    restore_mask = (accepted_pending ^ latest_pending) & rewind_domain;
+    if (restore_mask) {
+      auto accepted = make_pending_update(restore_mask, accepted_pending);
+      proxy->non_reg_interrupt_pending(accepted);
+    }
+  }
+#endif
   if (dut->event.hasNMI) {
     proxy->trigger_nmi(dut->event.hasNMI, dut->event.interrupt);
   } else if (dut->event.virtualInterruptIsHvictlInject) {
@@ -494,6 +614,12 @@ void Difftest::do_interrupt() {
   intrDeleg.irToVS = dut->event.irToVS;
   proxy->intr_delegate(intrDeleg);
   proxy->raise_intr(dut->event.interrupt | (1ULL << 63));
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+  if (restore_mask) {
+    auto latest = make_pending_update(restore_mask, latest_pending);
+    proxy->non_reg_interrupt_pending(latest);
+  }
+#endif
   progress = true;
 }
 
@@ -547,6 +673,41 @@ void Difftest::do_exception() {
 
   progress = true;
 }
+
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+void Difftest::apply_csr_read_snapshot(int index, uint64_t &restore_mask, uint64_t &restore_pending,
+                                       bool &lcofi_changed_after_snapshot) {
+  restore_mask = 0;
+  restore_pending = latest_non_reg_interrupt_pending;
+  lcofi_changed_after_snapshot = false;
+
+  const auto &commit = dut->commit[index];
+  auto &snapshot = csr_read_snapshot;
+  if (!is_pending_csr_read(commit.instr)) {
+    return;
+  }
+
+  if (!snapshot.valid) {
+    Info("Core %d missing CSR pending snapshot: pc=0x%016lx instr=0x%08x\n", this->id, commit.pc,
+         commit.instr);
+    csr_snapshot_mismatch = true;
+    return;
+  }
+
+  const uint64_t snapshot_pending = snapshot.pending & kNonRegInterruptSnapshotMask;
+  const uint64_t snapshot_mask = snapshot.mask & kNonRegInterruptSnapshotMask;
+  const uint64_t latest_mask = latest_non_reg_interrupt_pending_mask & kNonRegInterruptSnapshotMask;
+  const uint64_t rewind_domain = snapshot_mask | latest_mask;
+  restore_mask = (snapshot_pending ^ latest_non_reg_interrupt_pending) & rewind_domain;
+  lcofi_changed_after_snapshot = snapshot.lcofi_epoch != lcofi_update_epoch;
+  if (restore_mask) {
+    auto accepted = make_pending_update(restore_mask, snapshot_pending);
+    proxy->non_reg_interrupt_pending(accepted);
+  }
+  snapshot.valid = false;
+}
+
+#endif
 
 int Difftest::do_instr_commit(int i) {
 
@@ -610,16 +771,51 @@ int Difftest::do_instr_commit(int i) {
   // MMIO accessing should not be a branch or jump, just +2/+4 to get the next pc
   // to skip the checking of an instruction, just copy the reg state to reference design
   if (dut->commit[i].skip || (DEBUG_MODE_SKIP(dut->commit[i].valid, dut->commit[i].pc, dut->commit[i].inst))) {
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+    if (is_pending_csr_read(dut->commit[i].instr)) {
+      csr_read_snapshot.valid = false;
+    }
+#endif
     // We use the physical register file to get wdata
     proxy->skip_one(dut->commit[i].isRVC, (dut->commit[i].rfwen && dut->commit[i].wdest != 0), dut->commit[i].fpwen,
                     dut->commit[i].vecwen, dut->commit[i].wdest, get_commit_data(i), dut);
     return 0;
   }
 
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+  uint64_t csr_restore_mask = 0;
+  uint64_t csr_restore_pending = latest_non_reg_interrupt_pending;
+  bool lcofi_changed_after_snapshot = false;
+  apply_csr_read_snapshot(i, csr_restore_mask, csr_restore_pending, lcofi_changed_after_snapshot);
+  if (csr_snapshot_mismatch) {
+    return 1;
+  }
+#endif
+
   // Default: single step exec
   // when there's a fused instruction, let proxy execute more instructions.
   for (int j = 0; j < dut->commit[i].nFused + 1; j++) {
     proxy->ref_exec(1);
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+    if (j == 0) {
+      const bool pending_csr_write = is_pending_csr_write(dut->commit[i].instr);
+      uint64_t post_csr_restore_mask = csr_restore_mask;
+      if (pending_csr_write && !lcofi_changed_after_snapshot) {
+        // LCOFIP is sticky architectural state. With no later hardware update,
+        // the CSR result produced by REF is the newest value and must not be undone.
+        post_csr_restore_mask &= ~kLcofi;
+      }
+      if (post_csr_restore_mask) {
+        auto latest = make_pending_update(post_csr_restore_mask, csr_restore_pending);
+        proxy->non_reg_interrupt_pending(latest);
+      }
+      if (pending_csr_write) {
+        proxy->sync();
+        latest_non_reg_interrupt_pending =
+            (latest_non_reg_interrupt_pending & ~kLcofi) | (proxy->csr.mip & kLcofi);
+      }
+    }
+#endif
 #ifdef CONFIG_DIFFTEST_SQUASH
     commit_stamp = (commit_stamp + 1) % CONFIG_DIFFTEST_SQUASH_STAMPSIZE;
     do_load_check(i);
@@ -630,6 +826,21 @@ int Difftest::do_instr_commit(int i) {
   }
 
   return 0;
+}
+
+void Difftest::regcpy_dut_to_ref() {
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+  // DUT mip.SEIP is software OR external; Spike regcpy must receive only the software-owned bit.
+  const uint64_t dut_mip = dut->csr.mip;
+  const bool software_seip = dut->non_reg_interrupt_pending.valid
+                                 ? dut->non_reg_interrupt_pending.softwareSeip
+                                 : latest_software_seip;
+  dut->csr.mip = (dut_mip & ~kSei) | (software_seip ? kSei : 0);
+#endif
+  proxy->regcpy(dut);
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+  dut->csr.mip = dut_mip;
+#endif
 }
 
 void Difftest::do_first_instr_commit() {
@@ -654,7 +865,7 @@ void Difftest::do_first_instr_commit() {
     uint64_t dut_this_pc = dut->commit[0].pc;
     // NEMU should always start at FIRST_INST_ADDRESS
     dut->commit[0].pc = FIRST_INST_ADDRESS;
-    proxy->regcpy(dut);
+    regcpy_dut_to_ref();
     dut->commit[0].pc = dut_this_pc;
     // Do not reconfig simulator 'proxy->update_config(&nemu_config)' here:
     // If this is main sim thread, simulator has its own initial config
@@ -662,7 +873,7 @@ void Difftest::do_first_instr_commit() {
     // do not override it.
   }
   if(has_commit && dut->commit[0].valid && dut->commit[0].pc == FIRST_INST_ADDRESS){
-    proxy->regcpy(dut);
+    regcpy_dut_to_ref();
   }
 }
 
@@ -1653,23 +1864,31 @@ void Difftest::raise_trap(int trapCode) {
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
 void Difftest::do_non_reg_interrupt_pending() {
   if (dut->non_reg_interrupt_pending.valid) {
-    struct NonRegInterruptPending ip;
-    ip.platformIRPMeipValid = dut->non_reg_interrupt_pending.platformIRPMeipValid;
-    ip.platformIRPMeip = dut->non_reg_interrupt_pending.platformIRPMeip;
-    ip.platformIRPMtipValid = dut->non_reg_interrupt_pending.platformIRPMtipValid;
-    ip.platformIRPMtip = dut->non_reg_interrupt_pending.platformIRPMtip;
-    ip.platformIRPMsipValid = dut->non_reg_interrupt_pending.platformIRPMsipValid;
-    ip.platformIRPMsip = dut->non_reg_interrupt_pending.platformIRPMsip;
-    ip.platformIRPSeipValid = dut->non_reg_interrupt_pending.platformIRPSeipValid;
-    ip.platformIRPSeip = dut->non_reg_interrupt_pending.platformIRPSeip;
-    ip.platformIRPStipValid = dut->non_reg_interrupt_pending.platformIRPStipValid;
-    ip.platformIRPStip = dut->non_reg_interrupt_pending.platformIRPStip;
-    ip.platformIRPVseipValid = dut->non_reg_interrupt_pending.platformIRPVseipValid;
-    ip.platformIRPVseip = dut->non_reg_interrupt_pending.platformIRPVseip;
-    ip.platformIRPVstipValid = dut->non_reg_interrupt_pending.platformIRPVstipValid;
-    ip.platformIRPVstip = dut->non_reg_interrupt_pending.platformIRPVstip;
-    ip.localCounterOverflowInterruptReqValid = dut->non_reg_interrupt_pending.localCounterOverflowInterruptReqValid;
-    ip.localCounterOverflowInterruptReq = dut->non_reg_interrupt_pending.localCounterOverflowInterruptReq;
+    const uint64_t raw_pending = dut->non_reg_interrupt_pending.rawPending & kNonRegInterruptSnapshotMask;
+    const uint64_t raw_mask = dut->non_reg_interrupt_pending.rawPendingMask & kNonRegInterruptSnapshotMask;
+    const uint64_t ownership_added = raw_mask & ~latest_non_reg_interrupt_pending_mask;
+    const uint64_t ownership_removed = latest_non_reg_interrupt_pending_mask & ~raw_mask;
+    const uint64_t ownership_changed = ownership_added | ownership_removed;
+    const uint64_t source_update_mask = (
+        (dut->non_reg_interrupt_pending.platformIRPMeipValid ? kMei : 0) |
+        (dut->non_reg_interrupt_pending.platformIRPMtipValid ? kMti : 0) |
+        (dut->non_reg_interrupt_pending.platformIRPMsipValid ? kMsi : 0) |
+        (dut->non_reg_interrupt_pending.platformIRPSeipValid ? kSei : 0) |
+        (dut->non_reg_interrupt_pending.platformIRPStipValid ? kSti : 0) |
+        (dut->non_reg_interrupt_pending.platformIRPVseipValid ? kVsei : 0) |
+        (dut->non_reg_interrupt_pending.platformIRPVstipValid ? kVsti : 0) |
+        (dut->non_reg_interrupt_pending.localCounterOverflowInterruptReqValid ? kLcofi : 0)) & raw_mask;
+
+    const uint64_t cache_update_mask = source_update_mask | ownership_changed;
+    latest_non_reg_interrupt_pending =
+        (latest_non_reg_interrupt_pending & ~cache_update_mask) | (raw_pending & cache_update_mask);
+    latest_non_reg_interrupt_pending_mask = raw_mask;
+    latest_software_seip = dut->non_reg_interrupt_pending.softwareSeip;
+
+    auto ip = make_pending_update(ownership_added | source_update_mask, raw_pending);
+    if (source_update_mask & kLcofi) {
+      ++lcofi_update_epoch;
+    }
     ip.fromAIAMeipValid = dut->non_reg_interrupt_pending.fromAIAMeipValid;
     ip.fromAIAMeip = dut->non_reg_interrupt_pending.fromAIAMeip;
     ip.fromAIASeipValid = dut->non_reg_interrupt_pending.fromAIASeipValid;
@@ -1677,7 +1896,29 @@ void Difftest::do_non_reg_interrupt_pending() {
     ip.stimeValid = dut->non_reg_interrupt_pending.stimeValid;
     ip.stime = dut->non_reg_interrupt_pending.stime;
 
+    if (dut->non_reg_interrupt_pending.csrReadSnapshotFlush) {
+      csr_read_snapshot.valid = false;
+    }
+    if (dut->non_reg_interrupt_pending.csrReadSnapshotValid &&
+        !dut->non_reg_interrupt_pending.csrReadSnapshotFlush) {
+      if (csr_read_snapshot.valid) {
+        Info("Core %d overlapping CSR pending snapshots\n", this->id);
+        csr_snapshot_mismatch = true;
+      } else {
+        csr_read_snapshot.valid = true;
+        csr_read_snapshot.pending = raw_pending;
+        csr_read_snapshot.mask = raw_mask;
+        csr_read_snapshot.lcofi_epoch = lcofi_update_epoch;
+      }
+    }
+
     proxy->non_reg_interrupt_pending(ip);
+    if (ownership_removed) {
+      // time->sync() is processed after STIP inside the first update. Apply
+      // released bits last so an STCE falling edge exposes retained software state.
+      auto released = make_pending_update(ownership_removed, raw_pending);
+      proxy->non_reg_interrupt_pending(released);
+    }
     dut->non_reg_interrupt_pending.valid = 0;
   }
 }

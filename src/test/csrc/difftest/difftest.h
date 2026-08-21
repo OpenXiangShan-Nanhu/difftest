@@ -358,8 +358,28 @@ protected:
 
   // For compare the first instr pc of a commit group
   bool pc_mismatch = false;
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+  bool interrupt_mismatch = false;
+  bool csr_snapshot_mismatch = false;
+#endif
   uint64_t dut_commit_first_pc = 0;
   uint64_t ref_commit_first_pc = 0;
+
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+  uint64_t latest_non_reg_interrupt_pending = 0;
+  uint64_t latest_non_reg_interrupt_pending_mask = 0;
+  uint64_t lcofi_update_epoch = 0;
+  bool latest_software_seip = false;
+  struct CsrReadSnapshot {
+    bool valid = false;
+    uint64_t pending = 0;
+    uint64_t mask = 0;
+    uint64_t lcofi_epoch = 0;
+  };
+  // Nanhu CSR instructions are noSpec/blockBackward and use a non-pipelined FU,
+  // so one strict snapshot slot is sufficient. Overlap is a protocol mismatch.
+  CsrReadSnapshot csr_read_snapshot = {};
+#endif
 
   uint64_t nemu_this_pc;
   DiffState *state = NULL;
@@ -390,6 +410,7 @@ protected:
   }
   int check_timeout();
   int check_all();
+  void regcpy_dut_to_ref();
   void do_first_instr_commit();
   void do_interrupt();
   void do_exception();
@@ -480,6 +501,8 @@ protected:
   void raise_trap(int trapCode);
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
   void do_non_reg_interrupt_pending();
+  void apply_csr_read_snapshot(int index, uint64_t &restore_mask, uint64_t &restore_pending,
+                               bool &lcofi_changed_after_snapshot);
 #endif
 #ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
   void do_mhpmevent_overflow();
