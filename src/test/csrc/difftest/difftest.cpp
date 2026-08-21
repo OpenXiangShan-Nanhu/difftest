@@ -426,7 +426,9 @@ inline int Difftest::check_all() {
   num_commit = 0; // reset num_commit this cycle to 0
   if (dut->event.valid) {
     // interrupt has a higher priority than exception
-    dut->event.interrupt ? do_interrupt() : do_exception();
+    (dut->event.interrupt || dut->event.hasNMI || dut->event.virtualInterruptIsHvictlInject)
+        ? do_interrupt()
+        : do_exception();
     dut->event.valid = 0;
     dut->commit[0].valid = 0;
   } else {
