@@ -411,6 +411,11 @@ class DiffLoadEventQueue extends DiffLoadEvent with DifftestWithStamp with DiffT
   override val squashQueue: Boolean = true
 }
 
+class DiffLoadSnapshotEvent extends LoadSnapshotEvent with DifftestBundle with DifftestWithIndex {
+  override val desiredCppName: String = "load_snapshot"
+  override val squashGroup: Seq[String] = Seq()
+}
+
 class DiffAtomicEvent extends AtomicEvent with DifftestBundle {
   override val desiredCppName: String = "atomic"
   override val squashGroup: Seq[String] = Seq("GOLDENMEM")

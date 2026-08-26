@@ -41,6 +41,7 @@ class DifftestTop extends Module {
   val difftest_sbuffer_event = DifftestModule(new DiffSbufferEvent, dontCare = true)
   val difftest_store_event = DifftestModule(new DiffStoreEvent, dontCare = true)
   val difftest_load_event = DifftestModule(new DiffLoadEvent, dontCare = true)
+  val difftest_load_snapshot_event = DifftestModule(new DiffLoadSnapshotEvent, dontCare = true)
   val difftest_atomic_event = DifftestModule(new DiffAtomicEvent, dontCare = true)
   val difftest_cmo_inval_event = DifftestModule(new DiffCMOInvalEvent, dontCare = true)
   val difftest_itlb_event = DifftestModule(new DiffL1TLBEvent, dontCare = true)

@@ -149,9 +149,9 @@ class PreprocessEndpoint(bundles: Seq[DifftestBundle]) extends Module {
 
   val withCommitData = in.filterNot(_.desiredCppName.contains("wb")) ++ commitData
 
-  // LoadEvent will not be checked when single-core
+  // Load events will not be checked when single-core
   val skipLoad = if (in.count(_.isUniqueIdentifier) == 1) {
-    withCommitData.filterNot(_.desiredCppName == "load")
+    withCommitData.filterNot(b => Seq("load", "load_snapshot").contains(b.desiredCppName))
   } else {
     withCommitData
   }

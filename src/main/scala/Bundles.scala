@@ -260,6 +260,14 @@ class LoadEvent extends DifftestBaseBundle with HasValid {
   val isAtomic = Bool()
   val isLoad = Bool()
   val isVLoad = Bool()
+  val robidx = UInt(10.W)
+}
+
+class LoadSnapshotEvent extends DifftestBaseBundle with HasValid {
+  val robidx = UInt(10.W)
+  val pc = UInt(64.W)
+  val paddr = UInt(64.W)
+  val mask = UInt(16.W)
 }
 
 class AtomicEvent extends DifftestBaseBundle with HasValid {
