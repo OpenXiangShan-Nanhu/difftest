@@ -313,31 +313,29 @@ Difftest::~Difftest() {
 
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
 #ifdef DEBUG_LOAD_SNAPSHOT
-namespace {
-
-bool masked_ranges_overlap(uint64_t lhs_addr, uint64_t lhs_mask, size_t lhs_len, uint64_t rhs_addr, uint64_t rhs_mask,
-                           size_t rhs_len) {
-  for (size_t lhs_byte = 0; lhs_byte < lhs_len; lhs_byte++) {
-    if (!(lhs_mask & (1ULL << lhs_byte))) {
-      continue;
+void Difftest::log_load_snapshot_update_conflict(uint16_t robidx, uint64_t paddr, uint16_t mask) const {
+  auto log_same_byte = [&](int update_core, uint64_t update_cycle, const char *source, uint64_t update_addr,
+                           uint64_t update_mask, size_t update_bytes) {
+    for (size_t load_byte = 0; load_byte < load_snapshot_bytes; load_byte++) {
+      if (!(mask & (1ULL << load_byte))) {
+        continue;
+      }
+      uint64_t byte_addr = paddr + load_byte;
+      if (byte_addr < update_addr || byte_addr >= update_addr + update_bytes) {
+        continue;
+      }
+      size_t update_byte = byte_addr - update_addr;
+      if (!(update_mask & (1ULL << update_byte))) {
+        continue;
+      }
+      Info(
+          "Core %d load snapshot and Core %d %s update access the same byte in one difftest step: "
+          "load_cycle=%lu update_cycle=%lu paddr=0x%016lx robidx=0x%x "
+          "load_base=0x%016lx load_mask=0x%04x "
+          "update_base=0x%016lx update_mask=0x%016lx; snapshot reads GoldenMem before the update\n",
+          id, update_core, source, dut->trap.cycleCnt, update_cycle, byte_addr, robidx, paddr, mask, update_addr,
+          update_mask);
     }
-    uint64_t byte_addr = lhs_addr + lhs_byte;
-    if (byte_addr >= rhs_addr && byte_addr < rhs_addr + rhs_len && (rhs_mask & (1ULL << (byte_addr - rhs_addr)))) {
-      return true;
-    }
-  }
-  return false;
-}
-
-} // namespace
-
-void Difftest::log_load_snapshot_update_conflict(uint16_t robidx, uint64_t pc, uint64_t paddr, uint16_t mask) const {
-  auto log_conflict = [&](int update_core, const char *source, uint64_t update_addr, uint64_t update_mask) {
-    Info(
-        "Core %d load snapshot overlaps a same-cycle Core %d %s update; "
-        "capturing GoldenMem before the update: robidx=0x%x pc=0x%016lx "
-        "load_paddr=0x%016lx load_mask=0x%04x update_addr=0x%016lx update_mask=0x%016lx\n",
-        id, update_core, source, robidx, pc, paddr, mask, update_addr, update_mask);
   };
 
   for (int core = 0; core < NUM_CORES; core++) {
@@ -345,23 +343,25 @@ void Difftest::log_load_snapshot_update_conflict(uint16_t robidx, uint64_t pc, u
 #ifdef CONFIG_DIFFTEST_UNCACHEMMSTOREEVENT
     for (int i = 0; i < CONFIG_DIFF_UNCACHE_MM_STORE_WIDTH; i++) {
       const auto &event = update_dut->uncache_mm_store[i];
-      if (event.valid && masked_ranges_overlap(paddr, mask, load_snapshot_bytes, event.addr, event.mask, 8)) {
-        log_conflict(core, "uncache store", event.addr, event.mask);
+      if (event.valid) {
+        log_same_byte(core, update_dut->trap.cycleCnt, "uncache store", event.addr, event.mask, 8);
       }
     }
 #endif // CONFIG_DIFFTEST_UNCACHEMMSTOREEVENT
 #ifdef CONFIG_DIFFTEST_SBUFFEREVENT
     for (int i = 0; i < CONFIG_DIFF_SBUFFER_WIDTH; i++) {
       const auto &event = update_dut->sbuffer[i];
-      if (event.valid && masked_ranges_overlap(paddr, mask, load_snapshot_bytes, event.addr, event.mask, 64)) {
-        log_conflict(core, "SBuffer", event.addr, event.mask);
+      if (event.valid) {
+        log_same_byte(core, update_dut->trap.cycleCnt, "SBuffer", event.addr, event.mask, 64);
       }
     }
 #endif // CONFIG_DIFFTEST_SBUFFEREVENT
 #ifdef CONFIG_DIFFTEST_ATOMICEVENT
     const auto &event = update_dut->atomic;
-    if (event.valid && masked_ranges_overlap(paddr, mask, load_snapshot_bytes, event.addr, event.mask, 8)) {
-      log_conflict(core, "atomic", event.addr, event.mask);
+    const bool is_lr = event.fuop == 002 || event.fuop == 003;
+    const bool sc_failed = (event.fuop == 006 || event.fuop == 007) && event.out == 1;
+    if (event.valid && !is_lr && !sc_failed) {
+      log_same_byte(core, update_dut->trap.cycleCnt, "atomic", event.addr & ~0x7ULL, event.mask, 8);
     }
 #endif // CONFIG_DIFFTEST_ATOMICEVENT
   }
@@ -376,16 +376,19 @@ void Difftest::load_snapshot_record() {
     }
     event.valid = 0;
 
-#ifdef DEBUG_LOAD_SNAPSHOT
-    log_load_snapshot_update_conflict(event.robidx, event.pc, event.paddr, event.mask);
-#endif
+    auto &snapshots = load_snapshots[event.robidx];
+    if (event.clear) {
+      snapshots.clear();
+      continue;
+    }
 
-    auto &snapshot = load_snapshots[event.robidx % load_snapshot_entries];
-    snapshot = {};
-    snapshot.robidx = event.robidx;
-    snapshot.pc = event.pc;
+    LoadGoldenMemSnapshot snapshot;
     snapshot.paddr = event.paddr;
     snapshot.cycle = get_trap_event()->cycleCnt;
+
+#ifdef DEBUG_LOAD_SNAPSHOT
+    log_load_snapshot_update_conflict(event.robidx, event.paddr, event.mask);
+#endif
 
     for (size_t byte = 0; byte < load_snapshot_bytes; byte++) {
       if (!(event.mask & (1U << byte))) {
@@ -394,8 +397,8 @@ void Difftest::load_snapshot_record() {
       uint64_t byte_addr = event.paddr + byte;
       if (!in_pmem(byte_addr)) {
 #ifdef DEBUG_LOAD_SNAPSHOT
-        Info("Core %d load snapshot address is outside pmem: robidx=0x%x pc=0x%016lx paddr=0x%016lx\n", id,
-             event.robidx, event.pc, byte_addr);
+        Info("Core %d load snapshot address is outside pmem: robidx=0x%x paddr=0x%016lx\n", id, event.robidx,
+             byte_addr);
 #endif // DEBUG_LOAD_SNAPSHOT
         continue;
       }
@@ -404,59 +407,93 @@ void Difftest::load_snapshot_record() {
       snapshot.data[byte] = data;
       snapshot.mask |= 1U << byte;
     }
-    snapshot.valid = snapshot.mask != 0;
+    if (snapshot.mask != 0) {
+      snapshots.push_back(snapshot);
+    }
   }
 }
 
-bool Difftest::read_load_snapshot(uint16_t robidx, uint64_t pc, uint64_t paddr, void *data, size_t len) const {
-  const auto &snapshot = load_snapshots[robidx % load_snapshot_entries];
-  if (!snapshot.valid || snapshot.robidx != robidx || snapshot.pc != pc || paddr < snapshot.paddr ||
-      paddr + len > snapshot.paddr + load_snapshot_bytes) {
+bool Difftest::load_snapshot_matches(uint16_t robidx, uint64_t paddr, const void *data, size_t len,
+                                     std::vector<uint16_t> *consumed_masks) const {
+  if (len == 0 || len > load_snapshot_bytes) {
     return false;
   }
 
-  auto *bytes = static_cast<uint8_t *>(data);
-  for (size_t i = 0; i < len; i++) {
-    size_t offset = paddr + i - snapshot.paddr;
-    if (!(snapshot.mask & (1U << offset))) {
-      return false;
-    }
-    bytes[i] = snapshot.data[offset];
+  const auto &snapshots = load_snapshots[robidx];
+
+  if (consumed_masks != nullptr && consumed_masks->size() != snapshots.size()) {
+    consumed_masks->assign(snapshots.size(), 0);
   }
-  return true;
+
+  const auto *bytes = static_cast<const uint8_t *>(data);
+  for (size_t sample_index = snapshots.size(); sample_index > 0; sample_index--) {
+    const auto &snapshot = snapshots[sample_index - 1];
+    if (paddr < snapshot.paddr) {
+      continue;
+    }
+    size_t offset = paddr - snapshot.paddr;
+    if (offset >= load_snapshot_bytes || len > load_snapshot_bytes - offset) {
+      continue;
+    }
+
+    bool match = true;
+    for (size_t i = 0; i < len; i++) {
+      uint16_t byte_mask = 1U << (offset + i);
+      if (!(snapshot.mask & byte_mask) || bytes[i] != snapshot.data[offset + i] ||
+          (consumed_masks != nullptr && ((*consumed_masks)[sample_index - 1] & byte_mask))) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      if (consumed_masks != nullptr) {
+        for (size_t i = 0; i < len; i++) {
+          (*consumed_masks)[sample_index - 1] |= 1U << (offset + i);
+        }
+      }
+      return true;
+    }
+  }
+  return false;
 }
 
 void Difftest::clear_load_snapshot(uint16_t robidx) {
-  auto &snapshot = load_snapshots[robidx % load_snapshot_entries];
-  if (snapshot.valid && snapshot.robidx == robidx) {
-    snapshot = {};
+  load_snapshots[robidx].clear();
+}
+
+void Difftest::clear_all_load_snapshots() {
+  for (auto &snapshots: load_snapshots) {
+    snapshots.clear();
   }
 }
 
 #ifdef DEBUG_LOAD_SNAPSHOT
 void Difftest::log_load_snapshot_diff(uint16_t robidx, uint64_t pc) {
-  const auto &snapshot = load_snapshots[robidx % load_snapshot_entries];
-  if (!snapshot.valid || snapshot.robidx != robidx || snapshot.pc != pc) {
+  const auto &snapshots = load_snapshots[robidx];
+  if (snapshots.empty()) {
     return;
   }
 
   bool printed_header = false;
-  for (size_t byte = 0; byte < load_snapshot_bytes; byte++) {
-    if (!(snapshot.mask & (1U << byte))) {
-      continue;
+  for (const auto &snapshot: snapshots) {
+    for (size_t byte = 0; byte < load_snapshot_bytes; byte++) {
+      if (!(snapshot.mask & (1U << byte))) {
+        continue;
+      }
+      uint64_t golden_data = 0;
+      read_goldenmem(snapshot.paddr + byte, &golden_data, 1);
+      uint8_t golden = golden_data;
+      if (golden == snapshot.data[byte]) {
+        continue;
+      }
+      if (!printed_header) {
+        Info("Core %d load snapshot changed before commit: robidx=0x%x pc=0x%016lx commit_cycle=%lu\n", id,
+             robidx, pc, get_trap_event()->cycleCnt);
+        printed_header = true;
+      }
+      Info("  paddr=0x%016lx snapshot=0x%02x golden=0x%02x snapshot_cycle=%lu\n", snapshot.paddr + byte,
+           snapshot.data[byte], golden, snapshot.cycle);
     }
-    uint64_t golden_data = 0;
-    read_goldenmem(snapshot.paddr + byte, &golden_data, 1);
-    uint8_t golden = golden_data;
-    if (golden == snapshot.data[byte]) {
-      continue;
-    }
-    if (!printed_header) {
-      Info("Core %d load snapshot changed before commit: robidx=0x%x pc=0x%016lx snapshot_cycle=%lu commit_cycle=%lu\n",
-           id, snapshot.robidx, snapshot.pc, snapshot.cycle, get_trap_event()->cycleCnt);
-      printed_header = true;
-    }
-    Info("  paddr=0x%016lx snapshot=0x%02x golden=0x%02x\n", snapshot.paddr + byte, snapshot.data[byte], golden);
   }
 }
 #endif // DEBUG_LOAD_SNAPSHOT
@@ -529,7 +566,7 @@ void Difftest::do_replay() {
     load_event_queue.pop();
 #endif
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
-  memset(load_snapshots, 0, sizeof(load_snapshots));
+  clear_all_load_snapshots();
 #endif
 }
 #endif // CONFIG_DIFFTEST_REPLAY
@@ -1206,10 +1243,11 @@ void Difftest::do_vec_load_check(int index, DifftestLoadEvent load_event) {
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
     if (snapshot_eligible && !snapshotCandidates.empty()) {
       bool snapshot_match = true;
+      // Each byte returned by one load sample can satisfy at most one vector destination byte.
+      std::vector<uint16_t> consumed_snapshot_masks;
       for (const auto &candidate: snapshotCandidates) {
-        uint8_t snapshotByte = 0;
-        if (!read_load_snapshot(load_event.robidx, dut->commit[index].pc, candidate.paddr, &snapshotByte, 1) ||
-            candidate.dutByte != snapshotByte) {
+        if (!load_snapshot_matches(load_event.robidx, candidate.paddr, &candidate.dutByte, 1,
+                                   &consumed_snapshot_masks)) {
           snapshot_match = false;
           break;
         }
@@ -1381,25 +1419,18 @@ void Difftest::do_load_check(int i) {
         } else {
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
           bool snapshot_match = false;
-          uint64_t snapshot = 0;
+          uint64_t snapshot = commitData;
           if (load_event.isLoad &&
-              read_load_snapshot(load_event.robidx, dut->commit[i].pc, load_event.paddr, &snapshot, len)) {
-            switch (len) {
-              case 1: snapshot = (int64_t)(int8_t)snapshot; break;
-              case 2: snapshot = (int64_t)(int16_t)snapshot; break;
-              case 4: snapshot = (int64_t)(int32_t)snapshot; break;
-            }
-            if (snapshot == commitData) {
-              snapshot_match = true;
-              *refRegPtr = commitData;
-              proxy->sync(true);
+              load_snapshot_matches(load_event.robidx, load_event.paddr, &snapshot, len)) {
+            snapshot_match = true;
+            *refRegPtr = commitData;
+            proxy->sync(true);
 #ifdef DEBUG_LOAD_SNAPSHOT
-              Info(
-                  "Core %d load matched execution-time snapshot after Spike and golden memory mismatch: "
-                  "robidx=0x%x paddr=0x%016lx data=0x%016lx\n",
-                  id, load_event.robidx, load_event.paddr, commitData);
+            Info(
+                "Core %d load matched execution-time snapshot after Spike and golden memory mismatch: "
+                "robidx=0x%x pc=0x%016lx paddr=0x%016lx data=0x%016lx\n",
+                id, load_event.robidx, dut->commit[i].pc, load_event.paddr, commitData);
 #endif // DEBUG_LOAD_SNAPSHOT
-            }
           }
           if (!snapshot_match)
 #endif // CONFIG_DIFFTEST_LOADSNAPSHOTEVENT

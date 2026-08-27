@@ -24,6 +24,7 @@
 #include "refproxy.h"
 #include <queue>
 #include <unordered_set>
+#include <vector>
 #ifdef FUZZING
 #include "emu.h"
 #endif // FUZZING
@@ -413,19 +414,18 @@ protected:
   static const size_t load_snapshot_entries = 1 << 10;
   static const size_t load_snapshot_bytes = 16;
   struct LoadGoldenMemSnapshot {
-    bool valid = false;
-    uint16_t robidx = 0;
-    uint64_t pc = 0;
     uint64_t paddr = 0;
     uint16_t mask = 0;
     uint64_t cycle = 0;
     uint8_t data[load_snapshot_bytes] = {};
   };
-  LoadGoldenMemSnapshot load_snapshots[load_snapshot_entries] = {};
-  bool read_load_snapshot(uint16_t robidx, uint64_t pc, uint64_t paddr, void *data, size_t len) const;
+  std::vector<LoadGoldenMemSnapshot> load_snapshots[load_snapshot_entries];
+  bool load_snapshot_matches(uint16_t robidx, uint64_t paddr, const void *data, size_t len,
+                             std::vector<uint16_t> *consumed_masks = nullptr) const;
   void clear_load_snapshot(uint16_t robidx);
+  void clear_all_load_snapshots();
 #ifdef DEBUG_LOAD_SNAPSHOT
-  void log_load_snapshot_update_conflict(uint16_t robidx, uint64_t pc, uint64_t paddr, uint16_t mask) const;
+  void log_load_snapshot_update_conflict(uint16_t robidx, uint64_t paddr, uint16_t mask) const;
   void log_load_snapshot_diff(uint16_t robidx, uint64_t pc);
 #endif
 #endif
