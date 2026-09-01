@@ -174,8 +174,6 @@ extern unsigned long EMU_FLASH_SIZE;
 // whether to maintain goldenmem
 #if NUM_CORES>1
 #define DEBUG_GOLDENMEM
-// Temporary diagnostics for execution-time load snapshots.
-#define DEBUG_LOAD_SNAPSHOT
 #endif
 
 #ifdef DEBUG_REFILL

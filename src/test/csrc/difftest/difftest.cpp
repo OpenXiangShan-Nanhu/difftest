@@ -312,62 +312,6 @@ Difftest::~Difftest() {
 }
 
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
-#ifdef DEBUG_LOAD_SNAPSHOT
-void Difftest::log_load_snapshot_update_conflict(uint16_t robidx, uint64_t paddr, uint16_t mask) const {
-  auto log_same_byte = [&](int update_core, uint64_t update_cycle, const char *source, uint64_t update_addr,
-                           uint64_t update_mask, size_t update_bytes) {
-    for (size_t load_byte = 0; load_byte < load_snapshot_bytes; load_byte++) {
-      if (!(mask & (1ULL << load_byte))) {
-        continue;
-      }
-      uint64_t byte_addr = paddr + load_byte;
-      if (byte_addr < update_addr || byte_addr >= update_addr + update_bytes) {
-        continue;
-      }
-      size_t update_byte = byte_addr - update_addr;
-      if (!(update_mask & (1ULL << update_byte))) {
-        continue;
-      }
-      Info(
-          "Core %d load snapshot and Core %d %s update access the same byte in one difftest step: "
-          "load_cycle=%lu update_cycle=%lu paddr=0x%016lx robidx=0x%x "
-          "load_base=0x%016lx load_mask=0x%04x "
-          "update_base=0x%016lx update_mask=0x%016lx; snapshot reads GoldenMem before the update\n",
-          id, update_core, source, dut->trap.cycleCnt, update_cycle, byte_addr, robidx, paddr, mask, update_addr,
-          update_mask);
-    }
-  };
-
-  for (int core = 0; core < NUM_CORES; core++) {
-    auto *update_dut = difftest[core]->dut;
-#ifdef CONFIG_DIFFTEST_UNCACHEMMSTOREEVENT
-    for (int i = 0; i < CONFIG_DIFF_UNCACHE_MM_STORE_WIDTH; i++) {
-      const auto &event = update_dut->uncache_mm_store[i];
-      if (event.valid) {
-        log_same_byte(core, update_dut->trap.cycleCnt, "uncache store", event.addr, event.mask, 8);
-      }
-    }
-#endif // CONFIG_DIFFTEST_UNCACHEMMSTOREEVENT
-#ifdef CONFIG_DIFFTEST_SBUFFEREVENT
-    for (int i = 0; i < CONFIG_DIFF_SBUFFER_WIDTH; i++) {
-      const auto &event = update_dut->sbuffer[i];
-      if (event.valid) {
-        log_same_byte(core, update_dut->trap.cycleCnt, "SBuffer", event.addr, event.mask, 64);
-      }
-    }
-#endif // CONFIG_DIFFTEST_SBUFFEREVENT
-#ifdef CONFIG_DIFFTEST_ATOMICEVENT
-    const auto &event = update_dut->atomic;
-    const bool is_lr = event.fuop == 002 || event.fuop == 003;
-    const bool sc_failed = (event.fuop == 006 || event.fuop == 007) && event.out == 1;
-    if (event.valid && !is_lr && !sc_failed) {
-      log_same_byte(core, update_dut->trap.cycleCnt, "atomic", event.addr & ~0x7ULL, event.mask, 8);
-    }
-#endif // CONFIG_DIFFTEST_ATOMICEVENT
-  }
-}
-#endif // DEBUG_LOAD_SNAPSHOT
-
 void Difftest::load_snapshot_record() {
   for (int i = 0; i < CONFIG_DIFF_LOAD_SNAPSHOT_WIDTH; i++) {
     auto &event = dut->load_snapshot[i];
@@ -384,11 +328,6 @@ void Difftest::load_snapshot_record() {
 
     LoadGoldenMemSnapshot snapshot;
     snapshot.paddr = event.paddr;
-    snapshot.cycle = get_trap_event()->cycleCnt;
-
-#ifdef DEBUG_LOAD_SNAPSHOT
-    log_load_snapshot_update_conflict(event.robidx, event.paddr, event.mask);
-#endif
 
     for (size_t byte = 0; byte < load_snapshot_bytes; byte++) {
       if (!(event.mask & (1U << byte))) {
@@ -396,10 +335,6 @@ void Difftest::load_snapshot_record() {
       }
       uint64_t byte_addr = event.paddr + byte;
       if (!in_pmem(byte_addr)) {
-#ifdef DEBUG_LOAD_SNAPSHOT
-        Info("Core %d load snapshot address is outside pmem: robidx=0x%x paddr=0x%016lx\n", id, event.robidx,
-             byte_addr);
-#endif // DEBUG_LOAD_SNAPSHOT
         continue;
       }
       uint64_t data = 0;
@@ -467,36 +402,6 @@ void Difftest::clear_all_load_snapshots() {
   }
 }
 
-#ifdef DEBUG_LOAD_SNAPSHOT
-void Difftest::log_load_snapshot_diff(uint16_t robidx, uint64_t pc) {
-  const auto &snapshots = load_snapshots[robidx];
-  if (snapshots.empty()) {
-    return;
-  }
-
-  bool printed_header = false;
-  for (const auto &snapshot: snapshots) {
-    for (size_t byte = 0; byte < load_snapshot_bytes; byte++) {
-      if (!(snapshot.mask & (1U << byte))) {
-        continue;
-      }
-      uint64_t golden_data = 0;
-      read_goldenmem(snapshot.paddr + byte, &golden_data, 1);
-      uint8_t golden = golden_data;
-      if (golden == snapshot.data[byte]) {
-        continue;
-      }
-      if (!printed_header) {
-        Info("Core %d load snapshot changed before commit: robidx=0x%x pc=0x%016lx commit_cycle=%lu\n", id,
-             robidx, pc, get_trap_event()->cycleCnt);
-        printed_header = true;
-      }
-      Info("  paddr=0x%016lx snapshot=0x%02x golden=0x%02x snapshot_cycle=%lu\n", snapshot.paddr + byte,
-           snapshot.data[byte], golden, snapshot.cycle);
-    }
-  }
-}
-#endif // DEBUG_LOAD_SNAPSHOT
 #endif // CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
 
 #if defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_ARCHVECREGSTATE)
@@ -1271,12 +1176,6 @@ void Difftest::do_vec_load_check(int index, DifftestLoadEvent load_event) {
         // Snapshot bytes must never be written back to the reference memory.
         proxy->vec_update_goldenmem();
         proxy->sync(true);
-#ifdef DEBUG_LOAD_SNAPSHOT
-        Info(
-            "Core %d vector load matched execution-time snapshot after Spike and golden memory mismatch: "
-            "robidx=0x%x pc=0x%016lx\n",
-            id, load_event.robidx, dut->commit[index].pc);
-#endif // DEBUG_LOAD_SNAPSHOT
         return;
       }
     }
@@ -1314,10 +1213,6 @@ void Difftest::do_load_check(int i) {
     auto refRegPtr = proxy->arch_reg(dut->commit[i].wdest, dut->commit[i].fpwen);
     auto commitData = get_commit_data(i);
 #endif // CONFIG_DIFFTEST_SQUASH
-
-#if defined(CONFIG_DIFFTEST_LOADSNAPSHOTEVENT) && defined(DEBUG_LOAD_SNAPSHOT)
-    log_load_snapshot_diff(load_event.robidx, dut->commit[i].pc);
-#endif
 
 #if defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_ARCHVECREGSTATE)
     if (load_event.isVLoad) {
@@ -1425,12 +1320,6 @@ void Difftest::do_load_check(int i) {
             snapshot_match = true;
             *refRegPtr = commitData;
             proxy->sync(true);
-#ifdef DEBUG_LOAD_SNAPSHOT
-            Info(
-                "Core %d load matched execution-time snapshot after Spike and golden memory mismatch: "
-                "robidx=0x%x pc=0x%016lx paddr=0x%016lx data=0x%016lx\n",
-                id, load_event.robidx, dut->commit[i].pc, load_event.paddr, commitData);
-#endif // DEBUG_LOAD_SNAPSHOT
           }
           if (!snapshot_match)
 #endif // CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
