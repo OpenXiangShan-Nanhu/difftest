@@ -17,11 +17,11 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
+#include "diffstate.h"
+
 #ifndef NUM_CORES
 #define NUM_CORES 1
 #endif
-
-#include "diffstate.h"
 
 #if defined(CPU_NUTSHELL)
 #elif defined(CPU_XIANGSHAN)
