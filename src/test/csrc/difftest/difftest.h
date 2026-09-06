@@ -23,7 +23,6 @@
 #include "golden.h"
 #include "refproxy.h"
 #include <queue>
-#include <unordered_set>
 #include <vector>
 #ifdef FUZZING
 #include "emu.h"
@@ -406,7 +405,6 @@ protected:
 #endif
 
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
-  std::unordered_set<uint64_t> cmo_inval_event_set;
   void cmo_inval_event_record();
 #endif
 

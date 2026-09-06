@@ -37,6 +37,12 @@ void goldenmem_finish();
 extern "C" void update_goldenmem(uint64_t addr, void *data, uint64_t mask, int len, uint8_t flag = 0);
 extern "C" void read_goldenmem(uint64_t addr, void *data, uint64_t len, void *flag = NULL);
 
+#ifdef CONFIG_DIFFTEST_CMOINVALEVENT
+void goldenmem_cmo_inval(uint64_t addr);
+bool goldenmem_check_cmo_refill(uint64_t addr, const void *data);
+void goldenmem_clear_cmo_inval(uint64_t addr);
+#endif
+
 /* convert the guest physical address in the guest program to host virtual address in NEMU */
 void *guest_to_host(uint64_t addr);
 /* convert the host virtual address in NEMU to guest physical address in the guest program */

@@ -35,11 +35,6 @@
 
 Difftest **difftest = NULL;
 
-typedef union {
-    uint64_t u64;
-    uint8_t u8[8];
-} uint64_splitter;
-
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
 namespace {
 
@@ -1469,9 +1464,8 @@ int Difftest::do_refill_check(int cacheid) {
       read_goldenmem(dut_refill->addr + i * 8, &buf, 8, &flag_buf);
       if (dut_refill->data[i] != *((uint64_t *)buf)) {
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
-        if (cmo_inval_event_set.find(dut_refill->addr) != cmo_inval_event_set.end()) {
-          // If the data inconsistency occurs in the cache block operated by CBO.INVAL,
-          // it is considered reasonable and the DUT data is used to update goldenMem.
+        if (goldenmem_check_cmo_refill(dut_refill->addr, dut_refill->data)) {
+          // Only bytes invalidated by CBO.INVAL may differ; later writes must match.
           Info("INFO: Sync GoldenMem using refill Data from DUT (Because of CBO.INVAL):\n");
           Info("      cacheid=%d, addr: %lx\n      Gold: ", cacheid, dut_refill->addr);
           for (int j = 0; j < 8; j++) {
@@ -1486,34 +1480,13 @@ int Difftest::do_refill_check(int cacheid) {
           update_goldenmem(dut_refill->addr, dut_refill->data, 0xffffffffffffffffUL, 64);
           proxy->ref_memcpy(dut_refill->addr, dut_refill->data, 64, DUT_TO_REF);
 
-          // if(dut_refill->hasStoreData){
-          //   Info("\n store has data, update goldenmem");
-          //   update_goldenmem(dut_refill->addr, dut_refill->storeData, dut_refill->storeMask, 64);
-          // }
-
-          uint64_splitter data_splitter;
-          uint64_splitter mask_splitter;
-
-          for(int i = 0;i < 8; i++){
-            data_splitter.u64 = dut_refill->storeData[i];
-            mask_splitter.u64 = dut_refill->storeMask;
-
-            for(int j = 0; j < 8; j++){
-              uint64_t storeAddr = dut_refill->addr + (i*8+j);
-              Info("\n storeAddr = 0x%lx,data = 0x%lx,mask = %d",storeAddr,data_splitter.u8[j],(mask_splitter.u8[i] >> j) & 1);
-
-              if((mask_splitter.u8[i] >> j) & 1){
-                Info("\n store has data, update ref memory");
-                // Info("\n storeAddr = 0x%lx,data = 0x%lx,mask = %d",storeAddr,data_splitter.u8[j],(mask_splitter.u8[i] >> j) & 1);
-                proxy->ref_memcpy(storeAddr, &data_splitter.u8[j], 1, DUT_TO_REF);
-              }
+          // Preserve local stores in REF without adding them to shared GoldenMem.
+          auto *store_data = reinterpret_cast<uint8_t *>(dut_refill->storeData);
+          for (int byte = 0; byte < 64; byte++) {
+            if (cacheid == DCACHEID && dut_refill->hasStoreData && (dut_refill->storeMask & (1ULL << byte))) {
+              proxy->ref_memcpy(dut_refill->addr + byte, &store_data[byte], 1, DUT_TO_REF);
             }
           }
-          
-   
-
-
-          cmo_inval_event_set.erase(dut_refill->addr);
           return 0;
         } else {
 #endif // CONFIG_DIFFTEST_CMOINVALEVENT
@@ -1558,6 +1531,10 @@ int Difftest::do_refill_check(int cacheid) {
 #endif // CONFIG_DIFFTEST_CMOINVALEVENT
       }
     }
+#ifdef CONFIG_DIFFTEST_CMOINVALEVENT
+    // A matching refill also consumes the shared invalidation marker.
+    goldenmem_clear_cmo_inval(dut_refill->addr);
+#endif
   }
 #endif // CONFIG_DIFFTEST_REFILLEVENT
   return 0;
@@ -1978,7 +1955,7 @@ void Difftest::load_event_record() {
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
 void Difftest::cmo_inval_event_record() {
   if (dut->cmo_inval.valid) {
-    cmo_inval_event_set.insert(dut->cmo_inval.addr);
+    goldenmem_cmo_inval(dut->cmo_inval.addr);
     dut->cmo_inval.valid = 0;
   }
 }

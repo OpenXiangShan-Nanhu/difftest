@@ -22,16 +22,60 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <time.h>
+#ifdef CONFIG_DIFFTEST_CMOINVALEVENT
+#include <unordered_map>
+#endif
 
 uint8_t *pmem;
 uint8_t *pmem_flag; // 1: store update but load check skip; 0: update and check. others: assert
 static uint64_t pmem_size;
+
+#ifdef CONFIG_DIFFTEST_CMOINVALEVENT
+// Shared across cores; each bit permits recovery of one byte after CBO.INVAL.
+static std::unordered_map<uint64_t, uint64_t> cmo_inval_masks;
+#ifdef ENABLE_STORE_LOG
+static std::unordered_map<uint64_t, uint64_t> cmo_inval_masks_saved;
+#endif
+
+void goldenmem_cmo_inval(uint64_t addr) {
+  addr &= ~63ULL;
+  if (in_pmem(addr) && in_pmem(addr + 63)) {
+    cmo_inval_masks[addr] = UINT64_MAX;
+  }
+}
+
+bool goldenmem_check_cmo_refill(uint64_t addr, const void *data) {
+  auto it = cmo_inval_masks.find(addr);
+  if (it == cmo_inval_masks.end()) {
+    return false;
+  }
+  const auto *bytes = static_cast<const uint8_t *>(data);
+  const auto *golden = pmem + (addr - PMEM_BASE);
+  // Validate the entire line before allowing any GoldenMem or REF updates.
+  for (int i = 0; i < 64; i++) {
+    if (!(it->second & (1ULL << i)) && bytes[i] != golden[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void goldenmem_clear_cmo_inval(uint64_t addr) {
+  cmo_inval_masks.erase(addr & ~63ULL);
+}
+#endif
 
 void *guest_to_host(uint64_t addr) {
   return &pmem[addr];
 }
 
 void init_goldenmem() {
+#ifdef CONFIG_DIFFTEST_CMOINVALEVENT
+  cmo_inval_masks.clear();
+#ifdef ENABLE_STORE_LOG
+  cmo_inval_masks_saved.clear();
+#endif
+#endif
   pmem_size = simMemory->get_size();
   pmem = (uint8_t *)mmap(NULL, pmem_size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
   pmem_flag = (uint8_t *)mmap(NULL, pmem_size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
@@ -44,6 +88,12 @@ void init_goldenmem() {
 }
 
 void goldenmem_finish() {
+#ifdef CONFIG_DIFFTEST_CMOINVALEVENT
+  cmo_inval_masks.clear();
+#ifdef ENABLE_STORE_LOG
+  cmo_inval_masks_saved.clear();
+#endif
+#endif
   munmap(pmem, pmem_size);
   munmap(pmem_flag, pmem_size);
   pmem = NULL;
@@ -55,6 +105,16 @@ void update_goldenmem(uint64_t addr, void *data, uint64_t mask, int len, uint8_t
   for (int i = 0; i < len; i++) {
     if (((mask >> i) & 1) != 0) {
       paddr_write(addr + i, dataArray[i], flag, 1);
+#ifdef CONFIG_DIFFTEST_CMOINVALEVENT
+      auto it = cmo_inval_masks.find((addr + i) & ~63ULL);
+      if (it != cmo_inval_masks.end()) {
+        // A later write establishes a new value that refill must not roll back.
+        it->second &= ~(1ULL << ((addr + i) & 63));
+        if (it->second == 0) {
+          cmo_inval_masks.erase(it);
+        }
+      }
+#endif
     }
   }
 }
@@ -143,6 +203,9 @@ void goldenmem_set_store_log(bool enable) {
 
 void goldenmem_store_log_reset() {
   goldenmem_store_log_ptr = 0;
+#ifdef CONFIG_DIFFTEST_CMOINVALEVENT
+  cmo_inval_masks_saved = cmo_inval_masks;
+#endif
 }
 
 void pmem_record_store(uint64_t addr) {
@@ -165,6 +228,9 @@ void goldenmem_store_log_restore() {
     pmem_write(goldenmem_store_log_buf[i].addr, goldenmem_store_log_buf[i].org_data,
                goldenmem_store_log_buf[i].org_flag, 8);
   }
+#ifdef CONFIG_DIFFTEST_CMOINVALEVENT
+  cmo_inval_masks = cmo_inval_masks_saved;
+#endif
 }
 #endif // ENABLE_STORE_LOG
 
