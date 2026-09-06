@@ -103,9 +103,6 @@ extern unsigned long EMU_FLASH_SIZE;
 // Memory difftest config
 // -----------------------------------------------------------------------
 
-// whether to enable smp difftest
-// #define DEBUG_SMP
-
 // whether to check memory coherence during refilling
 #define DEBUG_REFILL
 

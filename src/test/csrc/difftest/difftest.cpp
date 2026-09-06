@@ -1324,20 +1324,11 @@ void Difftest::do_load_check(int i) {
           if (!snapshot_match)
 #endif // CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
           {
-#ifdef DEBUG_SMP
-            // goldenmem check failed as well, raise error
-            Info("---  SMP difftest mismatch!\n");
-            Info("---  Trying to probe local data of another core\n");
-            uint64_t buf;
-            difftest[(NUM_CORES - 1) - this->id]->proxy->memcpy(load_event.paddr, &buf, len, DIFFTEST_TO_DUT);
-            Info("---    content: %lx\n", buf);
-#else
             proxy->ref_memcpy(load_event.paddr, &golden, len, DUT_TO_REF);
             if (regWen) {
               *refRegPtr = commitData;
               proxy->sync(true);
             }
-#endif
           }
         }
       }
