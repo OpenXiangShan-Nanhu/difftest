@@ -631,7 +631,9 @@ inline int Difftest::check_all() {
         if ((dut->commit[i].instr & 0x1f0007f) == 0x1000007) do_vec_fof_sync();
 #endif
 #ifndef CONFIG_DIFFTEST_SQUASH
-        do_load_check(i);
+        if (do_load_check(i)) {
+          return 1;
+        }
         if (do_store_check()) {
           return 1;
         }
@@ -920,7 +922,9 @@ int Difftest::do_instr_commit(int i) {
 #endif
 #ifdef CONFIG_DIFFTEST_SQUASH
     commit_stamp = (commit_stamp + 1) % CONFIG_DIFFTEST_SQUASH_STAMPSIZE;
-    do_load_check(i);
+    if (do_load_check(i)) {
+      return 1;
+    }
     if (do_store_check()) {
       return 1;
     }
@@ -1191,25 +1195,27 @@ void Difftest::do_vec_load_check(int index, DifftestLoadEvent load_event) {
 }
 #endif // CONFIG_DIFFTEST_LOADEVENT && CONFIG_DIFFTEST_ARCHVECREGSTATE
 
-void Difftest::do_load_check(int i) {
+int Difftest::do_load_check(int i) {
   // Handle load instruction carefully for SMP
+  int result = 0;
 #ifdef CONFIG_DIFFTEST_LOADEVENT
   if (NUM_CORES > 1) {
 #ifdef CONFIG_DIFFTEST_SQUASH
     if (load_event_queue.empty())
-      return;
+      return 0;
     auto load_event = load_event_queue.front();
     if (load_event.stamp != commit_stamp)
-      return;
+      return 0;
     bool regWen = load_event.regWen;
+    bool fpwen = load_event.fpwen;
     auto refRegPtr = proxy->arch_reg(load_event.wdest, load_event.fpwen);
     auto commitData = load_event.commitData;
 #else
     auto load_event = dut->load[i];
     if (!load_event.valid)
-      return;
-    bool regWen =
-        (dut->commit[i].rfwen && dut->commit[i].wdest != 0) || dut->commit[i].fpwen;
+      return 0;
+    bool regWen = (dut->commit[i].rfwen && dut->commit[i].wdest != 0) || dut->commit[i].fpwen;
+    bool fpwen = dut->commit[i].fpwen;
     auto refRegPtr = proxy->arch_reg(dut->commit[i].wdest, dut->commit[i].fpwen);
     auto commitData = get_commit_data(i);
 #endif // CONFIG_DIFFTEST_SQUASH
@@ -1225,7 +1231,7 @@ void Difftest::do_load_check(int i) {
 #else
       dut->load[i].valid = 0;
 #endif // CONFIG_DIFFTEST_SQUASH
-      return;
+      return 0;
     }
 #endif // CONFIG_DIFFTEST_LOADEVENT && CONFIG_DIFFTEST_ARCHVECREGSTATE
 
@@ -1275,59 +1281,101 @@ void Difftest::do_load_check(int i) {
             len = 8;
           }
         }
-        read_goldenmem(load_event.paddr, &golden, len, &golden_flag);
-        if (load_event.isLoad) {
-          switch (len) {
-            case 1:
-              golden = (int64_t)(int8_t)golden;
-              golden_flag = (int64_t)(int8_t)golden_flag;
-              mask = (uint64_t)(0xFF);
-              break;
-            case 2:
-              golden = (int64_t)(int16_t)golden;
-              golden_flag = (int64_t)(int16_t)golden_flag;
-              mask = (uint64_t)(0xFFFF);
-              break;
-            case 4:
-              golden = (int64_t)(int32_t)golden;
-              golden_flag = (int64_t)(int32_t)golden_flag;
-              mask = (uint64_t)(0xFFFFFFFF);
-              break;
-          }
-        }
-        if (golden == commitData || load_event.isAtomic) { //  atomic instr carefully handled
-          proxy->ref_memcpy(load_event.paddr, &golden, len, DUT_TO_REF);
-          if (regWen) {
-            *refRegPtr = commitData;
-            proxy->sync(true);
-          }
-        } else if (load_event.isLoad && golden_flag != 0) {
-          // goldenmem check failed, but the flag is set, so use DUT data to reset
-          Info("load check of uncache mm store flag\n");
-          Info("  DUT data: 0x%lx, regWen: %d, refRegPtr: 0x%lx\n", commitData, regWen, refRegPtr);
-          proxy->ref_memcpy(load_event.paddr, &commitData, len, DUT_TO_REF);
-          update_goldenmem(load_event.paddr, &commitData, mask, len);
-          if (regWen) {
-            *refRegPtr = commitData;
-            proxy->sync(true);
-          }
+        if (len == 0) {
+          result = 1;
         } else {
+          read_goldenmem(load_event.paddr, &golden, len, &golden_flag);
+          if (load_event.isLoad && !load_event.isAtomic && golden_flag == 0) {
+            const uint64_t ref_data = *refRegPtr;
+            const uint64_t data_mask = UINT64_MAX >> (64 - len * 8);
+            uint64_t expected = commitData & data_mask;
+            if (fpwen) {
+              expected |= ~data_mask;
+            } else if (!(load_event.opType & 4)) {
+              const uint64_t sign_bit = UINT64_C(1) << (len * 8 - 1);
+              expected = (expected ^ sign_bit) - sign_bit;
+            }
+            const bool invalid_format =
+                expected != commitData || (fpwen && (load_event.opType < 1 || load_event.opType > 3));
+            uint8_t update_mask = 0;
+            uint8_t mismatch_mask = 0;
+            // ponytail: byte candidates do not prove ordering; stricter checks need forwarding provenance.
+            for (int byte = 0; byte < len; byte++) {
+              const uint8_t dut_byte = commitData >> (byte * 8);
+              if (dut_byte == uint8_t(ref_data >> (byte * 8)))
+                continue;
+              if (dut_byte == uint8_t(golden >> (byte * 8))) {
+                update_mask |= 1U << byte;
+                continue;
+              }
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
-          bool snapshot_match = false;
-          uint64_t snapshot = commitData;
-          if (load_event.isLoad &&
-              load_snapshot_matches(load_event.robidx, load_event.paddr, &snapshot, len)) {
-            snapshot_match = true;
-            *refRegPtr = commitData;
-            proxy->sync(true);
-          }
-          if (!snapshot_match)
+              if (load_snapshot_matches(load_event.robidx, load_event.paddr + byte, &dut_byte, 1))
+                continue;
 #endif // CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
-          {
-            proxy->ref_memcpy(load_event.paddr, &golden, len, DUT_TO_REF);
-            if (regWen) {
+              mismatch_mask |= 1U << byte;
+            }
+            if (invalid_format || mismatch_mask) {
+              Info("Scalar load mismatch: core=%d commit_pc=0x%016lx robidx=0x%x paddr=0x%016lx op=0x%x len=%d\n", id,
+                   dut->commit[i].pc, load_event.robidx, load_event.paddr, load_event.opType, len);
+              Info("  DUT=0x%016lx REF=0x%016lx Golden=0x%016lx mismatch_mask=0x%02x invalid_format=%d\n", commitData,
+                   ref_data, golden, mismatch_mask, invalid_format);
+#ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
+              for (const auto &snapshot: load_snapshots[load_event.robidx]) {
+                Info("  snapshot paddr=0x%016lx mask=0x%04x data=", snapshot.paddr, snapshot.mask);
+                for (size_t byte = 0; byte < load_snapshot_bytes; byte++) {
+                  Info("%02x", snapshot.data[byte]);
+                }
+                Info("\n");
+              }
+#endif // CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
+              result = 1;
+            } else {
+              // Validate the whole result before repairing memory; snapshot bytes never update it.
+              for (int byte = 0; byte < len; byte++) {
+                if (!(update_mask & (1U << byte)))
+                  continue;
+                uint8_t data = golden >> (byte * 8);
+                proxy->ref_memcpy(load_event.paddr + byte, &data, 1, DUT_TO_REF);
+              }
               *refRegPtr = commitData;
               proxy->sync(true);
+            }
+          } else {
+            if (load_event.isLoad) {
+              switch (len) {
+                case 1:
+                  golden = (int64_t)(int8_t)golden;
+                  golden_flag = (int64_t)(int8_t)golden_flag;
+                  mask = (uint64_t)(0xFF);
+                  break;
+                case 2:
+                  golden = (int64_t)(int16_t)golden;
+                  golden_flag = (int64_t)(int16_t)golden_flag;
+                  mask = (uint64_t)(0xFFFF);
+                  break;
+                case 4:
+                  golden = (int64_t)(int32_t)golden;
+                  golden_flag = (int64_t)(int32_t)golden_flag;
+                  mask = (uint64_t)(0xFFFFFFFF);
+                  break;
+              }
+            }
+            if (golden == commitData || load_event.isAtomic) { // atomic instr carefully handled
+              proxy->ref_memcpy(load_event.paddr, &golden, len, DUT_TO_REF);
+              if (regWen) {
+                *refRegPtr = commitData;
+                proxy->sync(true);
+              }
+            } else if (load_event.isLoad && golden_flag != 0) {
+              // goldenmem check failed, but the flag is set, so use DUT data to reset
+              Info("load check of uncache mm store flag\n");
+              Info("  DUT data: 0x%lx, regWen: %d, refRegPtr: %p\n", commitData, regWen, (void *)refRegPtr);
+              proxy->ref_memcpy(load_event.paddr, &commitData, len, DUT_TO_REF);
+              update_goldenmem(load_event.paddr, &commitData, mask, len);
+              if (regWen) {
+                *refRegPtr = commitData;
+                proxy->sync(true);
+              }
             }
           }
         }
@@ -1343,6 +1391,7 @@ void Difftest::do_load_check(int i) {
 #endif // CONFIG_DIFFTEST_SQUASH
   }
 #endif // CONFIG_DIFFTEST_LOADEVENT
+  return result;
 }
 
 int Difftest::do_store_check() {
