@@ -1273,10 +1273,36 @@ int Difftest::do_load_check(int i) {
             len = 8;
           }
         }
+        const int first_len =
+            load_event.isLoad && !load_event.isAtomic ? std::min(len, int(0x1000 - (load_event.paddr & 0xfff))) : len;
+        const bool cross_page = first_len < len;
+        const auto byte_paddr = [&](int byte) {
+          return byte < first_len ? load_event.paddr + byte : load_event.paddr2 + byte - first_len;
+        };
         if (len == 0) {
           result = 1;
+        } else if (cross_page && (!load_event.paddr2Valid || (load_event.paddr2 & 0xfff) ||
+                                  !in_pmem(load_event.paddr) || !in_pmem(byte_paddr(first_len - 1)) ||
+                                  !in_pmem(load_event.paddr2) || !in_pmem(byte_paddr(len - 1)))) {
+          Info(
+              "Scalar load address mismatch: core=%d commit_pc=0x%016lx robidx=0x%x paddr=0x%016lx "
+              "paddr2=0x%016lx paddr2Valid=%d split=%d+%d\n",
+              id, dut->commit[i].pc, load_event.robidx, load_event.paddr, load_event.paddr2, load_event.paddr2Valid,
+              first_len, len - first_len);
+          result = 1;
         } else {
-          read_goldenmem(load_event.paddr, &golden, len, &golden_flag);
+          if (cross_page) {
+            golden = golden_flag = 0;
+            // The two virtual pages need not be physically contiguous. GoldenMem reads only support 1/2/4/8 bytes.
+            for (int byte = 0; byte < len; byte++) {
+              uint64_t data, flag;
+              read_goldenmem(byte_paddr(byte), &data, 1, &flag);
+              golden |= data << (byte * 8);
+              golden_flag |= flag << (byte * 8);
+            }
+          } else {
+            read_goldenmem(load_event.paddr, &golden, len, &golden_flag);
+          }
           if (load_event.isLoad && !load_event.isAtomic && golden_flag == 0) {
             const uint64_t ref_data = *refRegPtr;
             const uint64_t data_mask = UINT64_MAX >> (64 - len * 8);
@@ -1301,7 +1327,7 @@ int Difftest::do_load_check(int i) {
                 continue;
               }
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
-              if (load_snapshot_matches(load_event.robidx, load_event.paddr + byte, &dut_byte, 1))
+              if (load_snapshot_matches(load_event.robidx, byte_paddr(byte), &dut_byte, 1))
                 continue;
 #endif // CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
               mismatch_mask |= 1U << byte;
@@ -1311,6 +1337,9 @@ int Difftest::do_load_check(int i) {
                    dut->commit[i].pc, load_event.robidx, load_event.paddr, load_event.opType, len);
               Info("  DUT=0x%016lx REF=0x%016lx Golden=0x%016lx mismatch_mask=0x%02x invalid_format=%d\n", commitData,
                    ref_data, golden, mismatch_mask, invalid_format);
+              if (cross_page) {
+                Info("  paddr2=0x%016lx split=%d+%d\n", load_event.paddr2, first_len, len - first_len);
+              }
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
               for (const auto &snapshot: load_snapshots[load_event.robidx]) {
                 Info("  snapshot paddr=0x%016lx mask=0x%04x data=", snapshot.paddr, snapshot.mask);
@@ -1327,7 +1356,7 @@ int Difftest::do_load_check(int i) {
                 if (!(update_mask & (1U << byte)))
                   continue;
                 uint8_t data = golden >> (byte * 8);
-                proxy->ref_memcpy(load_event.paddr + byte, &data, 1, DUT_TO_REF);
+                proxy->ref_memcpy(byte_paddr(byte), &data, 1, DUT_TO_REF);
               }
               *refRegPtr = commitData;
               proxy->sync(true);
@@ -1352,8 +1381,15 @@ int Difftest::do_load_check(int i) {
                   break;
               }
             }
+            const auto copy_to_ref = [&](uint64_t data) {
+              proxy->ref_memcpy(load_event.paddr, &data, first_len, DUT_TO_REF);
+              if (cross_page) {
+                data >>= first_len * 8;
+                proxy->ref_memcpy(load_event.paddr2, &data, len - first_len, DUT_TO_REF);
+              }
+            };
             if (golden == commitData || load_event.isAtomic) { // atomic instr carefully handled
-              proxy->ref_memcpy(load_event.paddr, &golden, len, DUT_TO_REF);
+              copy_to_ref(golden);
               if (regWen) {
                 *refRegPtr = commitData;
                 proxy->sync(true);
@@ -1362,8 +1398,12 @@ int Difftest::do_load_check(int i) {
               // goldenmem check failed, but the flag is set, so use DUT data to reset
               Info("load check of uncache mm store flag\n");
               Info("  DUT data: 0x%lx, regWen: %d, refRegPtr: %p\n", commitData, regWen, (void *)refRegPtr);
-              proxy->ref_memcpy(load_event.paddr, &commitData, len, DUT_TO_REF);
-              update_goldenmem(load_event.paddr, &commitData, mask, len);
+              copy_to_ref(commitData);
+              update_goldenmem(load_event.paddr, &commitData, mask, first_len);
+              if (cross_page) {
+                uint64_t data = commitData >> (first_len * 8);
+                update_goldenmem(load_event.paddr2, &data, mask >> first_len, len - first_len);
+              }
               if (regWen) {
                 *refRegPtr = commitData;
                 proxy->sync(true);

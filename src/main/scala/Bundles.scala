@@ -256,6 +256,9 @@ class StoreEvent extends DifftestBaseBundle with HasValid {
 
 class LoadEvent extends DifftestBaseBundle with HasValid {
   val paddr = UInt(64.W)
+  // First byte of the second page for a cross-page scalar load.
+  val paddr2 = UInt(64.W)
+  val paddr2Valid = Bool()
   val opType = UInt(8.W)
   val isAtomic = Bool()
   val isLoad = Bool()
