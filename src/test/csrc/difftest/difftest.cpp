@@ -507,6 +507,7 @@ int Difftest::step() {
 
 inline int Difftest::check_all() {
   progress = false;
+  load_mismatch = false;
 
   if (check_timeout()) {
     return 1;
@@ -626,9 +627,7 @@ inline int Difftest::check_all() {
         if ((dut->commit[i].instr & 0x1f0007f) == 0x1000007) do_vec_fof_sync();
 #endif
 #ifndef CONFIG_DIFFTEST_SQUASH
-        if (do_load_check(i)) {
-          return 1;
-        }
+        load_mismatch |= do_load_check(i);
         if (do_store_check()) {
           return 1;
         }
@@ -643,7 +642,7 @@ inline int Difftest::check_all() {
     return 1;
   }
 
-  if (!progress) {
+  if (!progress && !load_mismatch) {
     return 0;
   }
 
@@ -657,13 +656,13 @@ inline int Difftest::check_all() {
     return 1;
   }
 
-  if (proxy->compare(dut) || pc_mismatch
+  if (proxy->compare(dut) || pc_mismatch || load_mismatch
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
       || interrupt_mismatch || csr_snapshot_mismatch
 #endif
   ) {
 #ifdef FUZZING
-    if (in_disambiguation_state()) {
+    if (!load_mismatch && in_disambiguation_state()) {
       Info("Mismatch detected with a disambiguation state at pc = 0x%lx.\n", dut->trap.pc);
       return 0;
     }
@@ -917,9 +916,7 @@ int Difftest::do_instr_commit(int i) {
 #endif
 #ifdef CONFIG_DIFFTEST_SQUASH
     commit_stamp = (commit_stamp + 1) % CONFIG_DIFFTEST_SQUASH_STAMPSIZE;
-    if (do_load_check(i)) {
-      return 1;
-    }
+    load_mismatch |= do_load_check(i);
     if (do_store_check()) {
       return 1;
     }

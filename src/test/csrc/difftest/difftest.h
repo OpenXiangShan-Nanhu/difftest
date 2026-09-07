@@ -358,6 +358,8 @@ protected:
   int id;
 
   bool progress = false;
+  // A later write to the same register must not hide a failed load.
+  bool load_mismatch = false;
   uint64_t last_commit = 0;
 
   // For compare the first instr pc of a commit group
