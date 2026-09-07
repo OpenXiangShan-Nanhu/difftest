@@ -79,6 +79,8 @@ int LightSSS::do_fork() {
 }
 
 int LightSSS::wakeup_child(uint64_t cycles) {
+  if (pidSlot.empty())
+    return FORK_ERROR;
   forkshm.info->endCycles = cycles;
   forkshm.info->oldest = pidSlot.back();
 

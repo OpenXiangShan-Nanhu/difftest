@@ -22,6 +22,7 @@
 #include "ram.h"
 #include "remote_bitbang.h"
 #include "sdcard.h"
+#include <atomic>
 #include <getopt.h>
 #include <signal.h>
 #include <sys/resource.h>
@@ -41,6 +42,15 @@
 #endif
 
 extern remote_bitbang_t *jtag;
+
+#if VM_TRACE == 1
+static_assert(std::atomic<bool>::is_always_lock_free, "Signal handler requires a lock-free flag");
+static std::atomic<bool> wave_dump_requested{false};
+
+static void request_wave_dump(int) {
+  wave_dump_requested.store(true, std::memory_order_relaxed);
+}
+#endif
 
 static uint64_t parse_and_update_ramsize(const char *arg_ramsize_str) {
   unsigned long ram_size_value = 0;
@@ -508,6 +518,17 @@ Emulator::Emulator(int argc, const char *argv[])
 #endif // ENABLE_RUNAHEAD
     lightsss = new LightSSS;
     FORK_PRINTF("enable fork debugging...\n")
+#if VM_TRACE == 1
+    wave_dump_requested.store(false, std::memory_order_relaxed);
+    struct sigaction action = {};
+    action.sa_handler = request_wave_dump;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = SA_RESTART;
+    if (sigaction(SIGUSR1, &action, nullptr) != 0 || sigaction(SIGINT, &action, nullptr) != 0) {
+      perror("Cannot install LightSSS signal handler");
+      exit(EXIT_FAILURE);
+    }
+#endif
   }
 
 #if VM_COVERAGE == 1
@@ -757,6 +778,13 @@ end_single_cycle:
 }
 
 int Emulator::tick() {
+
+#if VM_TRACE == 1
+  if (args.enable_fork && !is_fork_child() && wave_dump_requested.load(std::memory_order_relaxed)) {
+    trapCode = STATE_ABORT;
+    return trapCode;
+  }
+#endif
 
 #ifdef SHOW_SCREEN
   uint32_t t = uptime();
