@@ -171,6 +171,7 @@ public:
   f(ref_set_mhartid, difftest_set_mhartid, void, int)                                                       \
   f(ref_put_gmaddr, difftest_put_gmaddr, void, void *)                                                      \
   f(ref_skip_one, difftest_skip_one, void, bool, bool, uint32_t, uint64_t)                                  \
+  f(ref_exec_fence_i, difftest_exec_fence_i, int, uint64_t, uint32_t)                                      \
   f(ref_guided_exec, difftest_guided_exec, void, void*)                                                     \
   f(ref_memcpy_init, difftest_memcpy_init, void, uint64_t, void*, size_t, bool)                             \
   f(raise_nmi_intr, difftest_raise_nmi_intr, void, uint64_t)                                                \
@@ -257,6 +258,14 @@ public:
   void regcpy(DiffTestState *dut);
   int compare(DiffTestState *dut);
   void display(DiffTestState *dut = nullptr);
+
+  inline int exec_fence_i(uint64_t pc, uint32_t instr) {
+    if (!ref_exec_fence_i) {
+      Info("REF does not support difftest_exec_fence_i: pc=0x%016lx instr=0x%08x\n", pc, instr);
+      return 1;
+    }
+    return ref_exec_fence_i(pc, instr);
+  }
 
   inline void skip_one(bool isRVC, bool rfwen, bool fpwen, bool vecwen, uint32_t wdest, uint64_t wdata,
                        DiffTestState *dut) {

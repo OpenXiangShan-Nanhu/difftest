@@ -893,6 +893,15 @@ int Difftest::do_instr_commit(int i) {
   // Default: single step exec
   // when there's a fused instruction, let proxy execute more instructions.
   for (int j = 0; j < dut->commit[i].nFused + 1; j++) {
+#if NUM_CORES > 1 && !defined(CONFIG_DIFFTEST_SQUASH) && !defined(BASIC_DIFFTEST_ONLY)
+    // ponytail: only trust committed fence.i; general self-modifying code needs fetch-time tracking.
+    if (j == 0 && dut->commit[i].nFused == 0 && (commit_instr & 0x707f) == 0x100f) {
+      if (proxy->exec_fence_i(commit_pc, commit_instr)) {
+        display();
+        return 1;
+      }
+    } else
+#endif
     proxy->ref_exec(1);
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
     if (j == 0) {
