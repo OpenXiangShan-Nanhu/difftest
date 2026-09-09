@@ -1611,7 +1611,9 @@ typedef struct {
   uint8_t level;
 } r_s2xlate;
 
-r_s2xlate do_s2xlate(Hgatp *hgatp, uint64_t gpaddr) {
+using PteRecords = std::vector<std::pair<uint64_t, uint64_t>>;
+
+r_s2xlate do_s2xlate(Hgatp *hgatp, uint64_t gpaddr, PteRecords *records = nullptr) {
   PTE pte;
   uint64_t hpaddr;
   uint8_t level;
@@ -1626,6 +1628,9 @@ r_s2xlate do_s2xlate(Hgatp *hgatp, uint64_t gpaddr) {
   for (level = max_level; level >= 0; level--) {
     hpaddr = pg_base + GVPNi(gpaddr, level, max_level) * sizeof(uint64_t);
     read_goldenmem(hpaddr, &pte.val, 8);
+    if (records != nullptr) {
+      records->emplace_back(hpaddr, pte.val);
+    }
     pg_base = pte.ppn << 12;
     if (!pte.v || pte.r || pte.x || pte.w || level == 0) {
       break;
@@ -1647,6 +1652,7 @@ int Difftest::do_l1tlb_check() {
     uint64_t paddr;
     uint8_t difftest_level;
     r_s2xlate r_s2;
+    PteRecords pte_records;
     bool isNapot = false;
 
     Satp *satp = (Satp *)&dut->l1tlb[i].satp;
@@ -1659,14 +1665,14 @@ int Difftest::do_l1tlb_check() {
     int mode = hasS2xlate ? vsatp->mode : satp->mode;
     int max_level = mode == 8 ? 2 : 3;
     if (onlyS2) {
-      r_s2 = do_s2xlate(hgatp, dut->l1tlb[i].vpn << 12);
+      r_s2 = do_s2xlate(hgatp, dut->l1tlb[i].vpn << 12, &pte_records);
       pte = r_s2.pte;
       difftest_level = r_s2.level;
     } else {
       for (difftest_level = max_level; difftest_level >= 0; difftest_level--) {
         paddr = pg_base + VPNi(dut->l1tlb[i].vpn, difftest_level) * sizeof(uint64_t);
         if (hasAllStage) {
-          r_s2 = do_s2xlate(hgatp, paddr);
+          r_s2 = do_s2xlate(hgatp, paddr, &pte_records);
           uint64_t pg_mask = ((1ull << VPNiSHFT(r_s2.level)) - 1);
           if (r_s2.level == 0 && r_s2.pte.n) {
             pg_mask = ((1ull << NAPOTSHFT) - 1);
@@ -1675,6 +1681,7 @@ int Difftest::do_l1tlb_check() {
           paddr = pg_base | (paddr & PAGE_MASK);
         }
         read_goldenmem(paddr, &pte.val, 8);
+        pte_records.emplace_back(paddr, pte.val);
         pg_base = pte.ppn << 12;
         if (!pte.v || pte.r || pte.x || pte.w || difftest_level == 0) {
           break;
@@ -1689,7 +1696,7 @@ int Difftest::do_l1tlb_check() {
         pg_base = (pte.ppn << 12 & ~pg_mask) | (dut->l1tlb[i].vpn << 12 & pg_mask & ~PAGE_MASK);
       }
       if (hasAllStage && pte.v) {
-        r_s2 = do_s2xlate(hgatp, pg_base);
+        r_s2 = do_s2xlate(hgatp, pg_base, &pte_records);
         pte = r_s2.pte;
         difftest_level = r_s2.level;
         if (difftest_level == 0 && pte.n) {
@@ -1710,6 +1717,19 @@ int Difftest::do_l1tlb_check() {
       Info("  REF commits perm 0x%02x, level %d, pf %d\n", pte.difftest_perm, difftest_level, !pte.difftest_v);
       return 0;
     }
+#if NUM_CORES > 1
+    // Keep REF's private page tables aligned with GoldenMem only after the DUT
+    // translation has passed.  A single REF is isolated by dlmopen per core.
+    if (!pte_records.empty() && proxy->supports_flush_tlb()) {
+      for (auto &record : pte_records) {
+        if (!in_pmem(record.first) || !in_pmem(record.first + sizeof(record.second) - 1)) {
+          continue;
+        }
+        proxy->ref_memcpy(record.first, &record.second, sizeof(record.second), DUT_TO_REF);
+      }
+      proxy->flush_tlb();
+    }
+#endif
   }
 #endif // CONFIG_DIFFTEST_L1TLBEVENT
   return 0;

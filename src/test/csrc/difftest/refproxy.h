@@ -169,6 +169,7 @@ public:
   f(ref_close, difftest_close, void, )                                                                      \
   f(ref_set_ramsize, difftest_set_ramsize, void, size_t)                                                    \
   f(ref_set_mhartid, difftest_set_mhartid, void, int)                                                       \
+  f(ref_flush_tlb, difftest_flush_tlb, void, )                                                              \
   f(ref_put_gmaddr, difftest_put_gmaddr, void, void *)                                                      \
   f(ref_skip_one, difftest_skip_one, void, bool, bool, uint32_t, uint64_t)                                  \
   f(ref_exec_fence_i, difftest_exec_fence_i, int, uint64_t, uint32_t)                                      \
@@ -372,6 +373,16 @@ public:
       ref_update_vec_load_goldenmen();
     } else {
       Info("Does not support the get vec update goldenmem.\n");
+    }
+  }
+
+  inline bool supports_flush_tlb() const {
+    return ref_flush_tlb != nullptr;
+  }
+
+  inline void flush_tlb() {
+    if (ref_flush_tlb) {
+      ref_flush_tlb();
     }
   }
 
