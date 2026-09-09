@@ -435,6 +435,11 @@ class DiffL1TLBEvent extends L1TLBEvent with DifftestBundle with DifftestWithInd
   override def supportsSquashBase: Bool = true.B
 }
 
+class DiffTlbEvent extends TlbEvent with DifftestBundle with DifftestWithIndex {
+  override val desiredCppName: String = "tlb"
+  override val squashGroup: Seq[String] = Seq()
+}
+
 class DiffL2TLBEvent extends L2TLBEvent with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "l2tlb"
   override val squashGroup: Seq[String] = Seq("GOLDENMEM")

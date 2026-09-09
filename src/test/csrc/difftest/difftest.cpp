@@ -536,6 +536,10 @@ inline int Difftest::check_all() {
   cmo_inval_event_record();
 #endif // CONFIG_DIFFTEST_CMOINVALEVENT
 
+#if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_TLBEVENT) && !defined(CONFIG_DIFFTEST_SQUASH)
+  tlb_event_record();
+#endif
+
   if (!has_commit) {
     return 0;
   }
@@ -552,7 +556,7 @@ inline int Difftest::check_all() {
   }
 #endif
 
-#ifdef DEBUG_L1TLB
+#if defined(DEBUG_L1TLB) && !(NUM_CORES > 1 && defined(CONFIG_DIFFTEST_TLBEVENT) && !defined(CONFIG_DIFFTEST_SQUASH))
   if (do_l1tlb_check()) {
     return 1;
   }
@@ -869,6 +873,9 @@ int Difftest::do_instr_commit(int i) {
   // MMIO accessing should not be a branch or jump, just +2/+4 to get the next pc
   // to skip the checking of an instruction, just copy the reg state to reference design
   if (dut->commit[i].skip || (DEBUG_MODE_SKIP(dut->commit[i].valid, dut->commit[i].pc, dut->commit[i].inst))) {
+#if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_TLBEVENT) && !defined(CONFIG_DIFFTEST_SQUASH)
+    pending_translations[dut->commit[i].tlbId].clear();
+#endif
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
     if (is_pending_csr_read(dut->commit[i].instr)) {
       csr_read_snapshot.valid = false;
@@ -890,19 +897,45 @@ int Difftest::do_instr_commit(int i) {
   }
 #endif
 
+#if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_TLBEVENT) && !defined(CONFIG_DIFFTEST_SQUASH)
+  assert(dut->commit[i].tlbId < (1 << 10));
+  active_translations.swap(pending_translations[dut->commit[i].tlbId]);
+  pending_translations[dut->commit[i].tlbId].clear();
+  const bool check_tlb = !active_translations.empty() && spike_valid();
+  tlb_commit_pc = commit_pc;
+  tlb_mismatch = false;
+  if (check_tlb) {
+    if (!proxy->supports_tlb_check()) {
+      Info("Core %d PTE check requires a Spike built with committed-translation support\n", id);
+      return 1;
+    }
+    proxy->set_tlb_check(this, [](void *context, uint64_t vaddr, bool is_fetch) {
+      return static_cast<Difftest *>(context)->check_translation(vaddr, is_fetch);
+    });
+  }
+#endif
+
   // Default: single step exec
   // when there's a fused instruction, let proxy execute more instructions.
+  int result = 0;
   for (int j = 0; j < dut->commit[i].nFused + 1; j++) {
 #if NUM_CORES > 1 && !defined(CONFIG_DIFFTEST_SQUASH) && !defined(BASIC_DIFFTEST_ONLY)
     // ponytail: only trust committed fence.i; general self-modifying code needs fetch-time tracking.
     if (j == 0 && dut->commit[i].nFused == 0 && (commit_instr & 0x707f) == 0x100f) {
       if (proxy->exec_fence_i(commit_pc, commit_instr)) {
         display();
-        return 1;
+        result = 1;
+        break;
       }
     } else
 #endif
     proxy->ref_exec(1);
+#if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_TLBEVENT) && !defined(CONFIG_DIFFTEST_SQUASH)
+    if (tlb_mismatch) {
+      result = 1;
+      break;
+    }
+#endif
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
     if (j == 0) {
       const bool pending_csr_write = is_pending_csr_write(dut->commit[i].instr);
@@ -932,7 +965,14 @@ int Difftest::do_instr_commit(int i) {
 #endif // CONFIG_DIFFTEST_SQUASH
   }
 
-  return 0;
+#if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_TLBEVENT) && !defined(CONFIG_DIFFTEST_SQUASH)
+  if (check_tlb) {
+    proxy->set_tlb_check(nullptr, nullptr);
+  }
+  active_translations.clear();
+#endif
+
+  return result;
 }
 
 void Difftest::regcpy_dut_to_ref() {
@@ -1611,9 +1651,7 @@ typedef struct {
   uint8_t level;
 } r_s2xlate;
 
-using PteRecords = std::vector<std::pair<uint64_t, uint64_t>>;
-
-r_s2xlate do_s2xlate(Hgatp *hgatp, uint64_t gpaddr, PteRecords *records = nullptr) {
+r_s2xlate do_s2xlate(Hgatp *hgatp, uint64_t gpaddr) {
   PTE pte;
   uint64_t hpaddr;
   uint8_t level;
@@ -1628,9 +1666,6 @@ r_s2xlate do_s2xlate(Hgatp *hgatp, uint64_t gpaddr, PteRecords *records = nullpt
   for (level = max_level; level >= 0; level--) {
     hpaddr = pg_base + GVPNi(gpaddr, level, max_level) * sizeof(uint64_t);
     read_goldenmem(hpaddr, &pte.val, 8);
-    if (records != nullptr) {
-      records->emplace_back(hpaddr, pte.val);
-    }
     pg_base = pte.ppn << 12;
     if (!pte.v || pte.r || pte.x || pte.w || level == 0) {
       break;
@@ -1640,6 +1675,180 @@ r_s2xlate do_s2xlate(Hgatp *hgatp, uint64_t gpaddr, PteRecords *records = nullpt
   r_s2.level = level;
   return r_s2;
 }
+
+#if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_TLBEVENT) && !defined(CONFIG_DIFFTEST_SQUASH)
+namespace {
+
+using PteRecords = std::vector<std::pair<uint64_t, uint64_t>>;
+constexpr uint64_t kComparableLeafPermMask = 0x1f; // V/R/W/X/U; G is inherited, A/D are hardware state.
+
+// Resolve an actual 4 KiB PPN, including the offset within a superpage.
+// Probe without A/D writes; compare stable leaf permissions observed by the DUT.
+template <typename ReadPte>
+bool walk_translation(uint64_t root, uint64_t vaddr, bool stage2, uint64_t hgatp,
+                      ReadPte &read_pte, PteRecords *records, const DifftestTlbEvent *expected,
+                      uint64_t &paddr) {
+  const unsigned mode = root >> 60;
+  if (mode == 0) {
+    paddr = vaddr;
+    return true;
+  }
+  if (mode != 8 && mode != 9) {
+    return false;
+  }
+  const int top = mode == 8 ? 2 : 3;
+  uint64_t base = (root & ((1ULL << 44) - 1)) << 12;
+  for (int level = top; level >= 0; level--) {
+    const uint64_t index_mask = stage2 && level == top ? 0x7ff : 0x1ff;
+    uint64_t address = base + ((vaddr >> VPNiSHFT(level)) & index_mask) * 8;
+    if (hgatp && !walk_translation(hgatp, address, true, 0, read_pte, records, nullptr, address)) {
+      return false;
+    }
+    PTE pte = {};
+    if (!read_pte(address, pte.val)) {
+      return false;
+    }
+    if (records) {
+      records->emplace_back(address, pte.val);
+    }
+    if (!pte.v || (!pte.r && pte.w) || pte.rsvd || pte.pbmt == 3) {
+      return false;
+    }
+    base = pte.ppn << 12;
+    if (pte.r || pte.x) {
+      // G may be inherited from a non-leaf PTE and A/D are updated by hardware.
+      if (expected && (((pte.val ^ (stage2 ? expected->s2Perm : expected->s1Perm)) & kComparableLeafPermMask) ||
+                       pte.pbmt != (stage2 ? expected->s2Pbmt : expected->s1Pbmt))) {
+        return false;
+      }
+      uint64_t mask = (1ULL << VPNiSHFT(level)) - 1;
+      if (pte.n) {
+        if (level != 0 || (pte.ppn & 0xf) != 8) {
+          return false;
+        }
+        mask = (1ULL << NAPOTSHFT) - 1;
+      } else if (base & (mask & ~PAGE_MASK)) {
+        return false;
+      }
+      paddr = (base & ~mask) | (vaddr & mask);
+      return !hgatp || walk_translation(hgatp, paddr, true, 0, read_pte, records, expected, paddr);
+    }
+    if (pte.n || pte.pbmt || pte.u || pte.a || pte.d) {
+      return false;
+    }
+  }
+  return false;
+}
+
+template <typename ReadPte>
+bool translation_matches(const DifftestTlbEvent &event, ReadPte &read_pte, PteRecords *records = nullptr) {
+  uint64_t paddr = 0;
+  const bool stage2 = event.s2xlate == onlyStage2;
+  const uint64_t root = stage2 ? event.hgatp : event.s2xlate ? event.vsatp : event.satp;
+  const uint64_t hgatp = event.s2xlate == allStage ? event.hgatp : 0;
+  return walk_translation(root, event.vpn << 12, stage2, hgatp, read_pte, records, &event, paddr) &&
+         (paddr >> 12) == event.ppn;
+}
+
+void record_translation(std::vector<DifftestTlbEvent> &records, const DifftestTlbEvent &event) {
+  for (auto &record : records) {
+    if (record.isFetch == event.isFetch && record.vpn == event.vpn && record.satp == event.satp &&
+        record.vsatp == event.vsatp && record.hgatp == event.hgatp && record.s2xlate == event.s2xlate) {
+      record = event;
+      return;
+    }
+  }
+  records.push_back(event);
+}
+
+} // namespace
+
+void Difftest::tlb_event_record() {
+  // Same-cycle order: new FTQ -> fetch response -> ROB allocation -> data response.
+  // No page-table reads or REF mutations happen on the speculative path.
+  for (int phase = 0; phase < 4; phase++) {
+    for (int i = 0; i < CONFIG_DIFF_TLB_WIDTH; i++) {
+      auto &event = dut->tlb[i];
+      if (!event.valid || phase != (event.isFetch ? 0 : 2) + !event.clear) {
+        continue;
+      }
+      event.valid = 0;
+      assert(event.id < (1 << 10) && event.ftqIdx < (1 << 10));
+      if (event.isFetch) {
+        if (event.clear) {
+          fetch_translations[event.id].clear();
+        } else {
+          record_translation(fetch_translations[event.id], event);
+        }
+      } else if (event.clear) {
+        pending_translations[event.id] = fetch_translations[event.ftqIdx];
+      } else {
+        record_translation(pending_translations[event.id], event);
+      }
+    }
+  }
+}
+
+bool Difftest::check_translation(uint64_t vaddr, bool is_fetch) {
+  auto read_ref = [this](uint64_t address, uint64_t &value) {
+    return proxy->read_pte(address, &value);
+  };
+  auto read_golden = [](uint64_t address, uint64_t &value) {
+    if (!in_pmem(address) || !in_pmem(address + 7)) {
+      return false;
+    }
+    read_goldenmem(address, &value, 8);
+    return true;
+  };
+  for (const auto &event : active_translations) {
+    const bool stage2 = event.s2xlate == onlyStage2;
+    const unsigned mode = (stage2 ? event.hgatp : event.s2xlate ? event.vsatp : event.satp) >> 60;
+    const uint64_t vpn_mask = (1ULL << ((mode == 8 ? 27 : 36) + (stage2 ? 2 : 0))) - 1;
+    if (event.isFetch != is_fetch || (event.vpn & vpn_mask) != ((vaddr >> 12) & vpn_mask)) {
+      continue;
+    }
+    if (translation_matches(event, read_ref)) {
+      return true;
+    }
+    // Only pages actually used while REF executes this committed group are checked.
+    // Unused fetch lines, masked elements and FOF tails never cause a correction.
+    PteRecords records;
+    if (!translation_matches(event, read_golden, &records)) {
+      Info("Core %d committed %s translation mismatch: pc=%016lx vaddr=%lx DUT ppn=%lx "
+           "satp=%lx vsatp=%lx hgatp=%lx s2xlate=%u; neither Spike nor GoldenMem matches\n",
+           id, is_fetch ? "fetch" : "data", tlb_commit_pc, vaddr, event.ppn,
+           event.satp, event.vsatp, event.hgatp, event.s2xlate);
+      tlb_mismatch = true;
+      return false;
+    }
+    PteRecords updates;
+    for (auto &record : records) {
+      uint64_t value = 0;
+      if (!read_ref(record.first, value)) {
+        Info("Core %d cannot access Spike PTE at %lx (pc=%016lx)\n", id, record.first, tlb_commit_pc);
+        tlb_mismatch = true;
+        return false;
+      }
+      if (value != record.second) {
+        updates.push_back(record);
+      }
+    }
+    // The entire selected path has passed before any PTE is written.
+    for (const auto &record : updates) {
+      if (!proxy->write_pte(record.first, record.second)) {
+        Info("Core %d failed to update Spike PTE at %lx (pc=%016lx)\n", id, record.first, tlb_commit_pc);
+        tlb_mismatch = true;
+        return false;
+      }
+    }
+    if (!updates.empty()) {
+      proxy->flush_tlb();
+    }
+    return true;
+  }
+  return true;
+}
+#endif
 
 int Difftest::do_l1tlb_check() {
 #ifdef CONFIG_DIFFTEST_L1TLBEVENT
@@ -1652,7 +1861,6 @@ int Difftest::do_l1tlb_check() {
     uint64_t paddr;
     uint8_t difftest_level;
     r_s2xlate r_s2;
-    PteRecords pte_records;
     bool isNapot = false;
 
     Satp *satp = (Satp *)&dut->l1tlb[i].satp;
@@ -1665,14 +1873,14 @@ int Difftest::do_l1tlb_check() {
     int mode = hasS2xlate ? vsatp->mode : satp->mode;
     int max_level = mode == 8 ? 2 : 3;
     if (onlyS2) {
-      r_s2 = do_s2xlate(hgatp, dut->l1tlb[i].vpn << 12, &pte_records);
+      r_s2 = do_s2xlate(hgatp, dut->l1tlb[i].vpn << 12);
       pte = r_s2.pte;
       difftest_level = r_s2.level;
     } else {
       for (difftest_level = max_level; difftest_level >= 0; difftest_level--) {
         paddr = pg_base + VPNi(dut->l1tlb[i].vpn, difftest_level) * sizeof(uint64_t);
         if (hasAllStage) {
-          r_s2 = do_s2xlate(hgatp, paddr, &pte_records);
+          r_s2 = do_s2xlate(hgatp, paddr);
           uint64_t pg_mask = ((1ull << VPNiSHFT(r_s2.level)) - 1);
           if (r_s2.level == 0 && r_s2.pte.n) {
             pg_mask = ((1ull << NAPOTSHFT) - 1);
@@ -1681,7 +1889,6 @@ int Difftest::do_l1tlb_check() {
           paddr = pg_base | (paddr & PAGE_MASK);
         }
         read_goldenmem(paddr, &pte.val, 8);
-        pte_records.emplace_back(paddr, pte.val);
         pg_base = pte.ppn << 12;
         if (!pte.v || pte.r || pte.x || pte.w || difftest_level == 0) {
           break;
@@ -1696,7 +1903,7 @@ int Difftest::do_l1tlb_check() {
         pg_base = (pte.ppn << 12 & ~pg_mask) | (dut->l1tlb[i].vpn << 12 & pg_mask & ~PAGE_MASK);
       }
       if (hasAllStage && pte.v) {
-        r_s2 = do_s2xlate(hgatp, pg_base, &pte_records);
+        r_s2 = do_s2xlate(hgatp, pg_base);
         pte = r_s2.pte;
         difftest_level = r_s2.level;
         if (difftest_level == 0 && pte.n) {
@@ -1717,19 +1924,6 @@ int Difftest::do_l1tlb_check() {
       Info("  REF commits perm 0x%02x, level %d, pf %d\n", pte.difftest_perm, difftest_level, !pte.difftest_v);
       return 0;
     }
-#if NUM_CORES > 1
-    // Keep REF's private page tables aligned with GoldenMem only after the DUT
-    // translation has passed.  A single REF is isolated by dlmopen per core.
-    if (!pte_records.empty() && proxy->supports_flush_tlb()) {
-      for (auto &record : pte_records) {
-        if (!in_pmem(record.first) || !in_pmem(record.first + sizeof(record.second) - 1)) {
-          continue;
-        }
-        proxy->ref_memcpy(record.first, &record.second, sizeof(record.second), DUT_TO_REF);
-      }
-      proxy->flush_tlb();
-    }
-#endif
   }
 #endif // CONFIG_DIFFTEST_L1TLBEVENT
   return 0;

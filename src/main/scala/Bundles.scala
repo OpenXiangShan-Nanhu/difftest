@@ -82,6 +82,7 @@ class InstrCommit(val numPhyRegs: Int = 32) extends DifftestBaseBundle with HasV
   val pc = UInt(64.W)
   val instr = UInt(32.W)
   val robIdx = UInt(10.W)
+  val tlbId = UInt(10.W)
   val lqIdx = UInt(7.W)
   val sqIdx = UInt(7.W)
   val isLoad = Bool()
@@ -292,6 +293,18 @@ class L1TLBEvent extends DifftestBaseBundle with HasValid {
   val vsatp = UInt(64.W)
   val hgatp = UInt(64.W)
   val s2xlate = UInt(2.W)
+}
+
+// Successful translations are associated with FTQ/ROB lifetimes before checking at commit.
+class TlbEvent extends L1TLBEvent {
+  val clear = Bool()
+  val isFetch = Bool()
+  val id = UInt(10.W)
+  val ftqIdx = UInt(10.W)
+  val s1Perm = UInt(8.W)
+  val s2Perm = UInt(8.W)
+  val s1Pbmt = UInt(2.W)
+  val s2Pbmt = UInt(2.W)
 }
 
 class L2TLBEvent extends DifftestBaseBundle with HasValid {

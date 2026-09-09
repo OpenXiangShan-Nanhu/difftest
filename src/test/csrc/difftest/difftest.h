@@ -425,6 +425,17 @@ protected:
   void clear_all_load_snapshots();
 #endif
 
+#if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_TLBEVENT) && !defined(CONFIG_DIFFTEST_SQUASH)
+  // Cleared on allocation, including ROB/FTQ reuse after a redirect.
+  std::vector<DifftestTlbEvent> fetch_translations[1 << 10];
+  std::vector<DifftestTlbEvent> pending_translations[1 << 10];
+  std::vector<DifftestTlbEvent> active_translations;
+  uint64_t tlb_commit_pc = 0;
+  bool tlb_mismatch = false;
+  void tlb_event_record();
+  bool check_translation(uint64_t vaddr, bool is_fetch);
+#endif
+
   void update_last_commit() {
     last_commit = get_trap_event()->cycleCnt;
   }

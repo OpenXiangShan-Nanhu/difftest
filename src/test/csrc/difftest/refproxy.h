@@ -170,6 +170,9 @@ public:
   f(ref_set_ramsize, difftest_set_ramsize, void, size_t)                                                    \
   f(ref_set_mhartid, difftest_set_mhartid, void, int)                                                       \
   f(ref_flush_tlb, difftest_flush_tlb, void, )                                                              \
+  f(ref_read_pte, difftest_read_pte, bool, uint64_t, uint64_t*)                                             \
+  f(ref_write_pte, difftest_write_pte, bool, uint64_t, uint64_t)                                             \
+  f(ref_set_tlb_check, difftest_set_tlb_check, void, void*, bool (*)(void*, uint64_t, bool))                  \
   f(ref_put_gmaddr, difftest_put_gmaddr, void, void *)                                                      \
   f(ref_skip_one, difftest_skip_one, void, bool, bool, uint32_t, uint64_t)                                  \
   f(ref_exec_fence_i, difftest_exec_fence_i, int, uint64_t, uint32_t)                                      \
@@ -376,8 +379,20 @@ public:
     }
   }
 
-  inline bool supports_flush_tlb() const {
-    return ref_flush_tlb != nullptr;
+  inline bool supports_tlb_check() const {
+    return ref_set_tlb_check && ref_read_pte && ref_write_pte && ref_flush_tlb;
+  }
+
+  inline bool read_pte(uint64_t address, uint64_t *value) {
+    return ref_read_pte(address, value);
+  }
+
+  inline bool write_pte(uint64_t address, uint64_t value) {
+    return ref_write_pte(address, value);
+  }
+
+  inline void set_tlb_check(void *context, bool (*check)(void *, uint64_t, bool)) {
+    ref_set_tlb_check(context, check);
   }
 
   inline void flush_tlb() {

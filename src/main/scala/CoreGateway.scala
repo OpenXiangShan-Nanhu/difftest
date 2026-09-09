@@ -24,6 +24,8 @@ object CoreGateway {
     require(gatewayMap.contains(name.toUpperCase), s"difftest signals $name is not recorded!")
     gatewayMap(name.toUpperCase)._1
   }
+
+  def count(prefix: String): Int = gatewayMap.keys.count(_.startsWith(prefix.toUpperCase))
 }
 
 class CoreGatewayBundle(
@@ -36,11 +38,15 @@ class CoreGatewayBundle(
   val vecPhyRegNum: Int,
   val v0WbPortNum: Int,
   val v0PhyRegNum: Int,
+  val tlbEventWidth: Int = 0,
 ) extends Bundle {
   val phyRegNumMax: Int = Array(intPhyRegNum, fpPhyRegNum, vecPhyRegNum, v0PhyRegNum).max
   // Rob
   val instrCommitDelayCnt: Int = 3
   val instrCommit = Vec(commitWidth, new DiffInstrCommit(phyRegNumMax))
+
+  val tlbEventDelayCnt: Int = 0
+  val tlbEvent = Vec(tlbEventWidth, new DiffTlbEvent)
 
   // val loadEventDelayCnt: Int = 3
   // val loadEvent = Vec(8, new DiffLoadEvent)
@@ -139,6 +145,7 @@ class CoreGatewayBundle(
   def getInstanceSeq: Seq[(DifftestBundle, Int)] = {
     Seq((archEvent, archEventDelayCnt)) ++
       instrCommit.map(c => (c, instrCommitDelayCnt)) ++
+      tlbEvent.map(e => (e, tlbEventDelayCnt)) ++
       intWriteback.map(wb => (wb, intWritebackDelayCnt)) ++
       fpWriteback.map(wb => (wb, fpWritebackDelayCnt)) ++
       vecWriteback.map(wb => (wb, vecWritebackDelayCnt)) ++
