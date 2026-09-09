@@ -752,6 +752,14 @@ void Difftest::do_exception() {
     proxy->ref_exec(1);
   }
 
+#if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_ARCHVECREGSTATE)
+  // An exceptioning vector load has no commit/load event. Check the bytes
+  // completed before the fault using Spike's golden load records instead.
+  if (do_vec_load_exception_check()) {
+    load_mismatch = true;
+  }
+#endif
+
 #ifdef FUZZING
   static uint64_t lastExceptionPC = 0xdeadbeafUL;
   static int sameExceptionPCCount = 0;
@@ -775,6 +783,74 @@ void Difftest::do_exception() {
 
   progress = true;
 }
+
+#if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_ARCHVECREGSTATE)
+bool Difftest::do_vec_load_exception_check() {
+  const uint32_t inst = dut->event.exceptionInst;
+  const uint32_t opcode = inst & 0x7f;
+  const uint32_t width = (inst >> 12) & 0x7;
+  // Vector loads use opcode 0x07 and widths e8/e16/e32/e64 (0, 5, 6, 7).
+  if (opcode != 0x07 || (width != 0 && width < 5)) {
+    return false;
+  }
+
+  auto *packet = proxy->get_vec_goldenmem_packet();
+  if (packet == nullptr || packet->byte_count == 0) {
+    return false;
+  }
+  proxy->sync();
+  if (packet->byte_count > 4096) {
+    Info("Vector exception load golden packet byte_count overflow\n");
+    return true;
+  }
+  const size_t vd_base = (inst >> 7) & 0x1f;
+  const size_t vd_num = proxy->get_ref_vdNum();
+  if (vd_num == 0 || vd_base + vd_num > 32) {
+    return false;
+  }
+
+  bool mismatch = false;
+  bool ref_updated = false;
+  std::memset(packet->update_mask, 0, packet->byte_count);
+
+  for (size_t i = 0; i < packet->byte_count; i++) {
+    const auto &record = packet->records[i];
+    if (record.dst_byte == UINT64_MAX || record.vreg < vd_base || record.vreg >= vd_base + vd_num ||
+        record.byte_offset >= 16) {
+      continue;
+    }
+
+    const size_t word = record.vreg * 2 + record.byte_offset / sizeof(uint64_t);
+    const size_t byte = record.byte_offset % sizeof(uint64_t);
+    auto *dut_bytes = reinterpret_cast<uint8_t *>(dut->regs_vec.value + word);
+    auto *ref_bytes = reinterpret_cast<uint8_t *>(proxy->arch_vecreg(word));
+    const uint8_t dut_byte = dut_bytes[byte];
+    const uint8_t ref_byte = ref_bytes[byte];
+
+    if (dut_byte == ref_byte) {
+      continue;
+    }
+    if (dut_byte == record.golden_byte) {
+      ref_bytes[byte] = dut_byte;
+      packet->update_mask[i] = 1;
+      ref_updated = true;
+      continue;
+    }
+
+    Info("Vector exception load mismatch: pc=0x%016lx paddr=0x%016lx "
+         "vreg=%lu byte=%lu DUT=0x%02x Spike=0x%02x Golden=0x%02x\n",
+         dut->event.exceptionPC, record.paddr, record.vreg, record.byte_offset, dut_byte, record.spike_byte,
+         record.golden_byte);
+    mismatch = true;
+  }
+
+  if (ref_updated) {
+    proxy->vec_update_goldenmem();
+    proxy->sync(true);
+  }
+  return mismatch;
+}
+#endif
 
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
 void Difftest::apply_csr_read_snapshot(int index, uint64_t &restore_mask, uint64_t &restore_pending,

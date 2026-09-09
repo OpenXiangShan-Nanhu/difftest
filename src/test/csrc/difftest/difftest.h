@@ -448,6 +448,9 @@ protected:
   int do_instr_commit(int index);
 #if defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_ARCHVECREGSTATE)
   void do_vec_load_check(int index, DifftestLoadEvent load_event);
+#if NUM_CORES > 1
+  bool do_vec_load_exception_check();
+#endif
 #endif // CONFIG_DIFFTEST_LOADEVENT && CONFIG_DIFFTEST_ARCHVECREGSTATE
   int do_load_check(int index);
   int do_store_check();
