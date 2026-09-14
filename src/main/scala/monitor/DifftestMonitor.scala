@@ -24,6 +24,7 @@ class DifftestMonitorBundle(
   val debugMode                   = new DiffDebugMode
   val triggerCSRState             = new DiffTriggerCSRState
   val fpCSRState                  = new DiffFpCSRState
+  val vecCSRState                 = new DiffVecCSRState
   val nonRegInterruptPendingEvent = new DiffNonRegInterruptPendingEvent
   val lrscEvent                   = new DiffLrScEvent
   val archIntRenameTable          = new DiffArchIntRenameTable(intPhyRegNum)
@@ -40,6 +41,7 @@ class DifftestMonitorBundle(
     (debugMode, 0)                    :+
     (triggerCSRState, 0)              :+
     (fpCSRState, 0)                   :+
+    (vecCSRState, 0)                  :+
     (nonRegInterruptPendingEvent, 0)  :+
     (lrscEvent, 0)                    :+
     (archIntRenameTable, 2)           :+

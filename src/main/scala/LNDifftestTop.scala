@@ -31,12 +31,13 @@ class LNDifftestTop(
   intPhyRegNum  : Int,
   fpPhyRegNum   : Int,
   vecPhyRegNum  : Int,
-  v0PhyRegNum   : Int
+  v0PhyRegNum   : Int,
+  pathHier      : String = "fpga_top_debug.core_def.U_CPU_TOP.u_XlnFpgaTop.lntop.sys.ci_0"
 ) extends Module {
   
   val monitorSeq = Seq.tabulate(coreNum)(idx => Module(new DifftestMonitor(
                                                             ccid = idx,
-                                                            path = s"XlnFpgaTop.soc",
+                                                            path = pathHier,
                                                             prefix = "",
                                                             commitWidth   = commitWidth,
                                                             intPhyRegNum  = intPhyRegNum,
@@ -132,6 +133,8 @@ class LNDifftestTop(
     }
   }
 
+  difftest_fpga.dut_reset.foreach(_ := fpgaHostReset)
+
   DifftestModule.generateCppHeader(
     "XiangShan",
     gateway.instances,
@@ -147,16 +150,17 @@ class LNDifftestTop(
 }
 
 class DifftestFpgaIO(hasFpgaIO: Boolean) extends Bundle {
-  val to_host_axis    = if(hasFpgaIO) Some(new AXI4Stream(Gateway.hostAxisWidth))                        else None
-  val from_host_axis  = if(hasFpgaIO) Some(Flipped(new AXI4Stream(Gateway.hostAxisWidth)))            else None
-  val config_axilite  = if(hasFpgaIO) Some(Flipped(new AXI4LiteBundle(32, 32)))                       else None
-  val pcie_clock      = if(hasFpgaIO) Some(Input(Clock()))                                            else None
-  val ref_clock       = if(hasFpgaIO) Some(Input(Clock()))                                            else None
-  val ref_reset       = if(hasFpgaIO) Some(Input(Bool()))                                             else None
-  val host_ctrl       = if(hasFpgaIO) Some(Output(new XDMAHostCtrlIO))                                else None
-  val noc_ddr_port    = if(hasFpgaIO) Some(Flipped(new AXI4Bundle(addrWidth = 34, dataWidth = 256)))  else None
-  val to_ddr          = if(hasFpgaIO) Some(new AXI4Bundle(addrWidth = 34, dataWidth = 256))              else None
-  val clock_enable    = if(hasFpgaIO) Some(Output(Bool()))                                            else None
+  val to_host_axis    = if(hasFpgaIO) Some(new AXI4Stream(Gateway.hostAxisWidth))                                                     else None
+  val from_host_axis  = if(hasFpgaIO) Some(Flipped(new AXI4Stream(Gateway.hostAxisWidth)))                                            else None
+  val config_axilite  = if(hasFpgaIO) Some(Flipped(new AXI4LiteBundle(32, 32)))                                                       else None
+  val pcie_clock      = if(hasFpgaIO) Some(Input(Clock()))                                                                            else None
+  val ref_clock       = if(hasFpgaIO) Some(Input(Clock()))                                                                            else None
+  val ref_reset       = if(hasFpgaIO) Some(Input(Bool()))                                                                             else None
+  val host_ctrl       = if(hasFpgaIO) Some(Output(new XDMAHostCtrlIO))                                                                else None
+  val noc_ddr_port    = if(hasFpgaIO) Some(Flipped(new AXI4Bundle(addrWidth = 48, dataWidth = 256, idWidth = 12, userWidth = 0)))     else None
+  val to_ddr          = if(hasFpgaIO) Some(new AXI4Bundle(addrWidth = 48, dataWidth = 256, idWidth = 12, userWidth = 0))              else None
+  val clock_enable    = if(hasFpgaIO) Some(Output(Bool()))                                                                            else None
+  val dut_reset       = if(hasFpgaIO) Some(Output(Bool()))                                                                            else None
 }
 
 trait DifftestIOHelper {
