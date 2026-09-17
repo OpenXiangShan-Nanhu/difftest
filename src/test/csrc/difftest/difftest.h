@@ -364,6 +364,8 @@ protected:
 
   // For compare the first instr pc of a commit group
   bool pc_mismatch = false;
+  bool external_fetch_af_enabled = false;
+  bool external_fetch_af_mismatch = false;
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
   bool interrupt_mismatch = false;
   bool csr_snapshot_mismatch = false;
@@ -572,6 +574,7 @@ protected:
 };
 
 extern Difftest **difftest;
+void difftest_set_external_fetch_af(bool enable);
 int difftest_init();
 
 int difftest_nstep(int step, bool enable_diff);

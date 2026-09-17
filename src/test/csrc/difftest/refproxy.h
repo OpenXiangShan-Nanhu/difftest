@@ -177,6 +177,7 @@ public:
   f(ref_skip_one, difftest_skip_one, void, bool, bool, uint32_t, uint64_t)                                  \
   f(ref_exec_fence_i, difftest_exec_fence_i, int, uint64_t, uint32_t)                                      \
   f(ref_guided_exec, difftest_guided_exec, void, void*)                                                     \
+  f(ref_exec_fetch_access_fault, difftest_exec_fetch_access_fault, int, uint64_t, uint64_t)                 \
   f(ref_memcpy_init, difftest_memcpy_init, void, uint64_t, void*, size_t, bool)                             \
   f(raise_nmi_intr, difftest_raise_nmi_intr, void, uint64_t)                                                \
   f(ref_virtual_interrupt_is_hvictl_inject, difftest_virtual_interrupt_is_hvictl_inject, void, bool)        \
@@ -403,6 +404,10 @@ public:
 
   inline void guided_exec(struct ExecutionGuide &guide) {
     return ref_guided_exec ? ref_guided_exec(&guide) : ref_exec(1);
+  }
+
+  inline int exec_fetch_access_fault(uint64_t pc, uint64_t fault_vaddr) {
+    return ref_exec_fetch_access_fault ? ref_exec_fetch_access_fault(pc, fault_vaddr) : -2;
   }
 
   virtual inline bool in_disambiguation_state() {

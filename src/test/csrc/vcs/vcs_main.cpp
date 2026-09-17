@@ -175,6 +175,25 @@ extern "C" void set_no_diff() {
   enable_difftest = false;
 }
 
+extern "C" void set_external_fetch_af(int enable) {
+  if (enable != 0 && enable != 1) {
+    fprintf(stderr, "+DIFFTEST_EXTERNAL_FETCH_AF must be 0 or 1\n");
+    std::abort();
+  }
+#ifdef CONFIG_NO_DIFFTEST
+  if (enable) {
+    fprintf(stderr, "+DIFFTEST_EXTERNAL_FETCH_AF=1 requires difftest support\n");
+    std::abort();
+  }
+#else
+  if (enable && !enable_difftest) {
+    fprintf(stderr, "+DIFFTEST_EXTERNAL_FETCH_AF=1 cannot be used with +no-diff\n");
+    std::abort();
+  }
+  difftest_set_external_fetch_af(enable != 0);
+#endif
+}
+
 extern "C" void set_simjtag() {
   enable_simjtag = true;
 }

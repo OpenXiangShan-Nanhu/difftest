@@ -45,6 +45,7 @@ import "DPI-C" function void set_flash_bin(string bin);
 import "DPI-C" function void set_gcpt_bin(string bin);
 import "DPI-C" function void set_diff_ref_so(string diff_so);
 import "DPI-C" function void set_no_diff();
+import "DPI-C" function void set_external_fetch_af(int enable);
 import "DPI-C" function void set_simjtag();
 import "DPI-C" function byte simv_init();
 import "DPI-C" function void set_max_instrs(longint mc);
@@ -82,6 +83,7 @@ string gcpt_bin_file;
 string diff_ref_so;
 string workload_list;
 string iotrace_name;
+string external_fetch_af_option;
 longint overwrite_nbytes;
 longint ram_size;
 
@@ -153,6 +155,15 @@ initial begin
   if ($test$plusargs("no-diff")) begin
     set_no_diff();
   end
+  // Parse strictly before simv_init; no option means disabled.
+  external_fetch_af_option = "0";
+  if ($test$plusargs("DIFFTEST_EXTERNAL_FETCH_AF")) begin
+    if (!$value$plusargs("DIFFTEST_EXTERNAL_FETCH_AF=%s", external_fetch_af_option) ||
+        (external_fetch_af_option != "0" && external_fetch_af_option != "1")) begin
+      $fatal(1, "+DIFFTEST_EXTERNAL_FETCH_AF must be 0 or 1");
+    end
+  end
+  set_external_fetch_af(external_fetch_af_option == "1" ? 1 : 0);
   // enable sim-jtag
   if ($test$plusargs("enable-jtag")) begin
     set_simjtag();

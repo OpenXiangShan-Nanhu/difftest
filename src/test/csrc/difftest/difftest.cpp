@@ -21,6 +21,7 @@
 #include "goldenmem.h"
 #include "ram.h"
 #include "spikedasm.h"
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 #if defined(CONFIG_DIFFTEST_SQUASH) && !defined(CONFIG_PLATFORM_FPGA)
@@ -34,6 +35,15 @@
 #endif // CONFIG_DIFFTEST_QUERY
 
 Difftest **difftest = NULL;
+static bool external_fetch_af_config = false;
+
+void difftest_set_external_fetch_af(bool enable) {
+  if (difftest != NULL) {
+    fprintf(stderr, "external fetch AF must be configured before difftest_init\n");
+    std::abort();
+  }
+  external_fetch_af_config = enable;
+}
 
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
 namespace {
@@ -286,6 +296,10 @@ void difftest_replay_head(int head) {
 #endif // CONFIG_DIFFTEST_REPLAY
 
 Difftest::Difftest(int coreid) : id(coreid) {
+  external_fetch_af_enabled = external_fetch_af_config;
+  if (external_fetch_af_enabled) {
+    Info("Core %d external fetch AF replay enabled for fault-injection tests (+DIFFTEST_EXTERNAL_FETCH_AF=1)\n", id);
+  }
   state = new DiffState();
 #ifdef CONFIG_DIFFTEST_REPLAY
   state_ss = (DiffState *)malloc(sizeof(DiffState));
@@ -660,7 +674,7 @@ inline int Difftest::check_all() {
     return 1;
   }
 
-  if (proxy->compare(dut) || pc_mismatch || load_mismatch
+  if (proxy->compare(dut) || pc_mismatch || load_mismatch || external_fetch_af_mismatch
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
       || interrupt_mismatch || csr_snapshot_mismatch
 #endif
@@ -727,7 +741,24 @@ void Difftest::do_interrupt() {
 
 void Difftest::do_exception() {
   state->record_exception(dut->event.exceptionPC, dut->event.exceptionInst, dut->event.exception);
-  if (dut->event.exception == EX_IPF || dut->event.exception == EX_LPF || dut->event.exception == EX_SPF ||
+  if (dut->event.exception == EX_IAF && external_fetch_af_enabled) {
+    // CSR snapshots describe the destination privilege after taking the trap.
+    uint64_t fault_vaddr = dut->csr.privilegeMode == 3 ? dut->csr.mtval : dut->csr.stval;
+#ifdef CONFIG_DIFFTEST_HCSRSTATE
+    if (dut->hcsr.virtMode) {
+      fault_vaddr = dut->hcsr.vstval;
+    }
+#endif
+    const int result = proxy->exec_fetch_access_fault(dut->event.exceptionPC, fault_vaddr);
+    if (result != 1) {
+      Info("Core %d external fetch AF replay failed: pc=0x%lx tval=0x%lx result=%d "
+           "(0=not consumed, -1=invalid request/PC, -2=REF interface missing)\n",
+           id, dut->event.exceptionPC, fault_vaddr, result);
+      external_fetch_af_mismatch = true;
+    } else {
+      Info("Core %d external fetch AF replay: pc=0x%lx tval=0x%lx\n", id, dut->event.exceptionPC, fault_vaddr);
+    }
+  } else if (dut->event.exception == EX_IPF || dut->event.exception == EX_LPF || dut->event.exception == EX_SPF ||
       dut->event.exception == EX_IGPF || dut->event.exception == EX_LGPF || dut->event.exception == EX_SGPF) {
     struct ExecutionGuide guide;
     guide.force_raise_exception = true;
