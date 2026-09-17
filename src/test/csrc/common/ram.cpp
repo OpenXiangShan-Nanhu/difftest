@@ -252,6 +252,8 @@ void SimMemory::display_stats() {
 }
 
 MmapMemory::MmapMemory(const char *image, uint64_t n_bytes) : SimMemory(n_bytes) {
+  // Sparse ELF pages belong to this workload, including for non-ELF images.
+  clearElfSparseMemory();
   // initialize memory using Linux mmap
   ram = (uint64_t *)mmap(NULL, memory_size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
   if (ram == (uint64_t *)MAP_FAILED) {
@@ -310,13 +312,20 @@ uint64_t difftest_ram_read(uint64_t rIdx) {
 #endif // CONFIG_DIFFTEST_PERFCNT
   if (!simMemory)
     return 0;
+  uint64_t sparse_data = 0;
+  if (!simMemory->in_range_u64(rIdx) && rIdx <= (UINT64_MAX - PMEM_BASE) / sizeof(uint64_t)) {
+    uint64_t paddr = PMEM_BASE + rIdx * sizeof(uint64_t);
+    if (readFromElfSparseMemory(paddr, &sparse_data, sizeof(sparse_data)))
+      return sparse_data;
+  }
 #ifdef PMEM_CHECK
   if (!simMemory->in_range_u64(rIdx)) {
     printf("ERROR: ram rIdx = 0x%lx out of bound!\n", rIdx);
     return 0;
   }
 #endif // PMEM_CHECK
-  rIdx %= simMemory->get_size() / sizeof(uint64_t);
+  if (!simMemory->in_range_u64(rIdx))
+    return 0;
   uint64_t rdata = simMemory->at(rIdx);
   return rdata;
 }
@@ -327,6 +336,15 @@ void difftest_ram_write(uint64_t wIdx, uint64_t wdata, uint64_t wmask) {
   difftest_bytes[perf_difftest_ram_write] += 24;
 #endif // CONFIG_DIFFTEST_PERFCNT
   if (simMemory) {
+    if (!simMemory->in_range_u64(wIdx) && wIdx <= (UINT64_MAX - PMEM_BASE) / sizeof(uint64_t)) {
+      uint64_t paddr = PMEM_BASE + wIdx * sizeof(uint64_t);
+      uint64_t old_data = 0;
+      if (readFromElfSparseMemory(paddr, &old_data, sizeof(old_data))) {
+        uint64_t new_data = (old_data & ~wmask) | (wdata & wmask);
+        writeToElfSparseMemory(paddr, &new_data, sizeof(new_data));
+        return;
+      }
+    }
     if (!simMemory->in_range_u64(wIdx)) {
       printf("ERROR: ram wIdx = 0x%lx out of bound!\n", wIdx);
       return;
@@ -339,16 +357,30 @@ uint64_t pmem_read(uint64_t raddr) {
   if (raddr % sizeof(uint64_t)) {
     printf("Warning: pmem_read only supports 64-bit aligned memory access\n");
   }
-  raddr -= PMEM_BASE;
-  return difftest_ram_read(raddr / sizeof(uint64_t));
+  if (simMemory && raddr >= PMEM_BASE && simMemory->in_range_u64((raddr - PMEM_BASE) / sizeof(uint64_t)))
+    return difftest_ram_read((raddr - PMEM_BASE) / sizeof(uint64_t));
+  uint64_t sparse_data = 0;
+  if (readFromElfSparseMemory(raddr, &sparse_data, sizeof(sparse_data)))
+    return sparse_data;
+  if (raddr < PMEM_BASE)
+    return 0;
+  return difftest_ram_read((raddr - PMEM_BASE) / sizeof(uint64_t));
 }
 
 void pmem_write(uint64_t waddr, uint64_t wdata) {
   if (waddr % sizeof(uint64_t)) {
     printf("Warning: pmem_write only supports 64-bit aligned memory access\n");
   }
-  waddr -= PMEM_BASE;
-  return difftest_ram_write(waddr / sizeof(uint64_t), wdata, -1UL);
+  if (simMemory && waddr >= PMEM_BASE && simMemory->in_range_u64((waddr - PMEM_BASE) / sizeof(uint64_t)))
+    return difftest_ram_write((waddr - PMEM_BASE) / sizeof(uint64_t), wdata, -1UL);
+  uint64_t old_data = 0;
+  if (readFromElfSparseMemory(waddr, &old_data, sizeof(old_data))) {
+    writeToElfSparseMemory(waddr, &wdata, sizeof(wdata));
+    return;
+  }
+  if (waddr < PMEM_BASE)
+    return;
+  return difftest_ram_write((waddr - PMEM_BASE) / sizeof(uint64_t), wdata, -1UL);
 }
 
 MmapMemoryWithFootprints::MmapMemoryWithFootprints(const char *image, uint64_t n_bytes, const char *footprints_name)

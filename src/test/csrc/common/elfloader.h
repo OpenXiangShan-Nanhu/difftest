@@ -182,8 +182,16 @@ struct ElfBinaryFile : public ElfBinary {
 
 // Is the file at the given path an Elf file
 bool isElfFile(const char *filename);
-// load binary content at `file_name` into ptr. Returns the number of bytes
-// written.
+// Load binary content at `file_name` into ptr. Returns the highest initialized
+// end offset in the contiguous PMEM buffer, including gaps and zero-filled data,
+// or -1 on error. Data stored outside PMEM in sparse memory is excluded.
 long readFromElf(void *ptr, const char *file_name, long buf_size);
+
+// Access PT_LOAD data whose physical address is outside the contiguous PMEM
+// window. These helpers keep the existing ELF loader and RAM DPI interfaces
+// unchanged while allowing sparse physical addresses.
+bool readFromElfSparseMemory(uint64_t paddr, void *dst, size_t len);
+bool writeToElfSparseMemory(uint64_t paddr, const void *src, size_t len);
+void clearElfSparseMemory();
 
 #endif // __ELFLOADER_H
