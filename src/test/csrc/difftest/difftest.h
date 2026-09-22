@@ -22,6 +22,7 @@
 #include "dut.h"
 #include "golden.h"
 #include "refproxy.h"
+#include "external_af.h"
 #include <queue>
 #include <vector>
 #ifdef FUZZING
@@ -365,7 +366,9 @@ protected:
   // For compare the first instr pc of a commit group
   bool pc_mismatch = false;
   bool external_fetch_af_enabled = false;
-  bool external_fetch_af_mismatch = false;
+  bool access_fault_skipped = false;
+  ExternalAfTracker::Trap external_af_trap = {};
+  bool external_af_matched = false;
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
   bool interrupt_mismatch = false;
   bool csr_snapshot_mismatch = false;

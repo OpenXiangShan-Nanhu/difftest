@@ -36,6 +36,22 @@
 
 Difftest **difftest = NULL;
 static bool external_fetch_af_config = false;
+static ExternalAfTracker external_af_trackers[NUM_CORES];
+
+extern "C" void difftest_external_af_reset(int coreid) {
+  if (coreid < 0 || coreid >= NUM_CORES) std::abort();
+  external_af_trackers[coreid].reset();
+}
+
+extern "C" void difftest_external_af_trap(int coreid, uint64_t pc, int exception,
+                                         int interrupt, int source, uint64_t paddr, uint64_t vaddr) {
+  if (!external_fetch_af_config) return;
+  if (coreid < 0 || coreid >= NUM_CORES ||
+      !external_af_trackers[coreid].push({pc, paddr, vaddr, uint32_t(exception), uint32_t(interrupt), uint32_t(source)})) {
+    fprintf(stderr, "External AF trap monitor overflow or invalid core: %d\n", coreid);
+    std::abort();
+  }
+}
 
 void difftest_set_external_fetch_af(bool enable) {
   if (difftest != NULL) {
@@ -298,7 +314,8 @@ void difftest_replay_head(int head) {
 Difftest::Difftest(int coreid) : id(coreid) {
   external_fetch_af_enabled = external_fetch_af_config;
   if (external_fetch_af_enabled) {
-    Info("Core %d external fetch AF replay enabled for fault-injection tests (+DIFFTEST_EXTERNAL_FETCH_AF=1)\n", id);
+    Info("Core %d external AF matching enabled: only injection-tagged traps are synchronized "
+         "(+DIFFTEST_EXTERNAL_FETCH_AF=1); untagged AFs remain strict\n", id);
   }
   state = new DiffState();
 #ifdef CONFIG_DIFFTEST_REPLAY
@@ -522,6 +539,8 @@ int Difftest::step() {
 inline int Difftest::check_all() {
   progress = false;
   load_mismatch = false;
+  access_fault_skipped = false;
+  external_af_matched = false;
 
   if (check_timeout()) {
     return 1;
@@ -554,7 +573,17 @@ inline int Difftest::check_all() {
   tlb_event_record();
 #endif
 
+  if (dut->event.valid && external_fetch_af_enabled) {
+    external_af_matched = external_af_trackers[id].consume(
+        dut->event.exceptionPC, dut->event.exception, dut->event.interrupt, external_af_trap);
+    if (external_af_trackers[id].broken()) {
+      Info("Core %d external AF trap stream mismatch at pc=0x%lx; refusing waiver\n", id, dut->event.exceptionPC);
+      return 1;
+    }
+  }
   if (!has_commit) {
+    // Bootstrap traps still consume monitor records, before REF starts checking.
+    if (external_fetch_af_enabled) dut->event.valid = 0;
     return 0;
   }
 
@@ -674,7 +703,7 @@ inline int Difftest::check_all() {
     return 1;
   }
 
-  if (proxy->compare(dut) || pc_mismatch || load_mismatch || external_fetch_af_mismatch
+  if ((!access_fault_skipped && proxy->compare(dut)) || pc_mismatch || load_mismatch
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
       || interrupt_mismatch || csr_snapshot_mismatch
 #endif
@@ -741,23 +770,34 @@ void Difftest::do_interrupt() {
 
 void Difftest::do_exception() {
   state->record_exception(dut->event.exceptionPC, dut->event.exceptionInst, dut->event.exception);
-  if (dut->event.exception == EX_IAF && external_fetch_af_enabled) {
-    // CSR snapshots describe the destination privilege after taking the trap.
-    uint64_t fault_vaddr = dut->csr.privilegeMode == 3 ? dut->csr.mtval : dut->csr.stval;
+  uint64_t fault_vaddr = dut->csr.privilegeMode == 3 ? dut->csr.mtval : dut->csr.stval;
 #ifdef CONFIG_DIFFTEST_HCSRSTATE
-    if (dut->hcsr.virtMode) {
-      fault_vaddr = dut->hcsr.vstval;
+  if (dut->csr.privilegeMode != 3 && dut->hcsr.virtMode) fault_vaddr = dut->hcsr.vstval;
+#endif
+  // Nanhu transports a 50-bit VA internally; CSR sign extension depends on the
+  // pre-trap translation mode. Keep PA matching in the RTL request tracker.
+  const uint64_t vaddr_mask = (uint64_t(1) << 50) - 1;
+  const bool fault_address_matches = (fault_vaddr & vaddr_mask) == (external_af_trap.vaddr & vaddr_mask);
+  if (external_fetch_af_enabled && external_af_matched && fault_address_matches &&
+      ExternalAfTracker::permits(external_af_trap)) {
+    // The monitor follows an injected response through FTQ/ROB to this trap.
+    // Never execute the faulting instruction in REF (it could store or do MMIO).
+    // CSR snapshots contain the destination privilege. Synchronous exceptions
+    // use xTVEC.BASE even when xTVEC.MODE is vectored.
+    uint64_t trap_pc = dut->csr.privilegeMode == 3 ? dut->csr.mtvec : dut->csr.stvec;
+#ifdef CONFIG_DIFFTEST_HCSRSTATE
+    if (dut->csr.privilegeMode != 3 && dut->hcsr.virtMode) {
+      trap_pc = dut->hcsr.vstvec;
     }
 #endif
-    const int result = proxy->exec_fetch_access_fault(dut->event.exceptionPC, fault_vaddr);
-    if (result != 1) {
-      Info("Core %d external fetch AF replay failed: pc=0x%lx tval=0x%lx result=%d "
-           "(0=not consumed, -1=invalid request/PC, -2=REF interface missing)\n",
-           id, dut->event.exceptionPC, fault_vaddr, result);
-      external_fetch_af_mismatch = true;
-    } else {
-      Info("Core %d external fetch AF replay: pc=0x%lx tval=0x%lx\n", id, dut->event.exceptionPC, fault_vaddr);
-    }
+    trap_pc &= ~uint64_t(3);
+    const uint64_t commit_pc = dut->commit[0].pc;
+    dut->commit[0].pc = trap_pc;
+    regcpy_dut_to_ref();
+    dut->commit[0].pc = commit_pc;
+    access_fault_skipped = true;
+    Info("Core %d external AF comparison skipped: cause=%lu pc=0x%lx paddr=0x%lx source=0x%x handler=0x%lx\n",
+         id, dut->event.exception, dut->event.exceptionPC, external_af_trap.paddr, external_af_trap.source, trap_pc);
   } else if (dut->event.exception == EX_IPF || dut->event.exception == EX_LPF || dut->event.exception == EX_SPF ||
       dut->event.exception == EX_IGPF || dut->event.exception == EX_LGPF || dut->event.exception == EX_SGPF) {
     struct ExecutionGuide guide;
@@ -786,7 +826,8 @@ void Difftest::do_exception() {
 #if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_LOADEVENT) && defined(CONFIG_DIFFTEST_ARCHVECREGSTATE)
   // An exceptioning vector load has no commit/load event. Check the bytes
   // completed before the fault using Spike's golden load records instead.
-  if (do_vec_load_exception_check()) {
+  // A waived AF did not execute in REF, so its load records would be stale.
+  if (!access_fault_skipped && do_vec_load_exception_check()) {
     load_mismatch = true;
   }
 #endif
