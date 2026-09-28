@@ -2362,11 +2362,9 @@ void Difftest::load_event_record() {
 
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
 void Difftest::cmo_inval_event_record() {
-  for (int i = 0; i < CONFIG_DIFF_CMO_INVAL_WIDTH; i++) {
-    if (dut->cmo_inval[i].valid) {
-      goldenmem_cmo_inval(dut->cmo_inval[i].addr);
-      dut->cmo_inval[i].valid = 0;
-    }
+  if (dut->cmo_inval.valid) {
+    goldenmem_cmo_inval(dut->cmo_inval.addr);
+    dut->cmo_inval.valid = 0;
   }
 }
 #endif // CONFIG_DIFFTEST_CMOINVALEVENT
