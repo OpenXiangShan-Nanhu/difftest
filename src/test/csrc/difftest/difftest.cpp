@@ -831,6 +831,12 @@ void Difftest::do_exception() {
     load_mismatch = true;
   }
 #endif
+#ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
+  // The faulting instruction will not reach the normal load-commit cleanup.
+  if (dut->event.exceptionRobIdxValid) {
+    clear_load_snapshot(dut->event.exceptionRobIdx);
+  }
+#endif
 
 #ifdef FUZZING
   static uint64_t lastExceptionPC = 0xdeadbeafUL;
@@ -883,6 +889,9 @@ bool Difftest::do_vec_load_exception_check() {
 
   bool mismatch = false;
   bool ref_updated = false;
+#ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
+  std::vector<uint16_t> consumed_snapshot_masks;
+#endif
   std::memset(packet->update_mask, 0, packet->byte_count);
 
   for (size_t i = 0; i < packet->byte_count; i++) {
@@ -908,6 +917,15 @@ bool Difftest::do_vec_load_exception_check() {
       ref_updated = true;
       continue;
     }
+#ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
+    if (dut->event.exceptionRobIdxValid &&
+        load_snapshot_matches(dut->event.exceptionRobIdx, record.paddr, &dut_byte, 1, &consumed_snapshot_masks)) {
+      ref_bytes[byte] = dut_byte;
+      // Keep update_mask clear: an execution-time value must not rewind REF memory.
+      ref_updated = true;
+      continue;
+    }
+#endif
 
     Info("Vector exception load mismatch: pc=0x%016lx paddr=0x%016lx "
          "vreg=%lu byte=%lu DUT=0x%02x Spike=0x%02x Golden=0x%02x\n",
