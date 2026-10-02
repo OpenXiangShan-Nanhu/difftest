@@ -57,7 +57,6 @@ class ArchEvent extends DifftestBaseBundle with HasValid {
   val exception = UInt(32.W)
   val exceptionPC = UInt(64.W)
   val exceptionInst = UInt(32.W)
-  val exceptionRobIdxValid = Bool()
   val exceptionRobIdx = UInt(10.W) // Full ROB pointer, including the wrap flag, for load snapshots.
   val hasNMI = Bool()
   val virtualInterruptIsHvictlInject = Bool()

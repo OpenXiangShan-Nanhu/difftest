@@ -833,9 +833,7 @@ void Difftest::do_exception() {
 #endif
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
   // The faulting instruction will not reach the normal load-commit cleanup.
-  if (dut->event.exceptionRobIdxValid) {
-    clear_load_snapshot(dut->event.exceptionRobIdx);
-  }
+  clear_load_snapshot(dut->event.exceptionRobIdx);
 #endif
 
 #ifdef FUZZING
@@ -918,8 +916,7 @@ bool Difftest::do_vec_load_exception_check() {
       continue;
     }
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
-    if (dut->event.exceptionRobIdxValid &&
-        load_snapshot_matches(dut->event.exceptionRobIdx, record.paddr, &dut_byte, 1, &consumed_snapshot_masks)) {
+    if (load_snapshot_matches(dut->event.exceptionRobIdx, record.paddr, &dut_byte, 1, &consumed_snapshot_masks)) {
       ref_bytes[byte] = dut_byte;
       // Keep update_mask clear: an execution-time value must not rewind REF memory.
       ref_updated = true;
