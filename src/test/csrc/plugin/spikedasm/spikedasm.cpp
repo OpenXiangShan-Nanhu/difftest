@@ -15,48 +15,59 @@
 ***************************************************************************************/
 
 #include "spikedasm.h"
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 
-// We cache the spike-dasm state here. If it is changed during running, the behavior is undefined.
-static bool is_tested = false, is_valid = true;
+static bool is_tested = false, is_valid = false;
+static std::string dasm_program;
+static char dasm_result[256];
 
-// This is a place-holder command string. spike_dasm function will replace the inst.
-static char dasm_cmd[] = "echo \"DASM(01234567deadbeaf)\" | spike-dasm";
-static const int dasm_offset = sizeof("echo \"DASM(") - 1;
+static std::string shell_quote(const std::string &value) {
+  std::string quoted = "'";
+  for (char c : value) {
+    quoted += c == '\'' ? "'\\''" : std::string(1, c);
+  }
+  return quoted + "'";
+}
 
-// We are using a global string as the result buffer.
-static char dasm_result[32];
+static bool execute_dasm_cmd(uint64_t inst) {
+  char input[64];
+  snprintf(input, sizeof(input), "printf 'DASM(%016" PRIx64 ")\\n' | ", inst);
+  const std::string command = input + shell_quote(dasm_program) + " 2>/dev/null";
+  dasm_result[0] = '\0';
+  FILE *pipe = popen(command.c_str(), "r");
+  if (!pipe) {
+    return false;
+  }
+  const bool got_output = fgets(dasm_result, sizeof(dasm_result), pipe) != nullptr;
+  const int status = pclose(pipe);
+  dasm_result[strcspn(dasm_result, "\r\n")] = '\0';
+  return status == 0 && got_output && dasm_result[0] && !strstr(dasm_result, "DASM(");
+}
 
 bool spike_valid() {
   if (!is_tested) {
     is_tested = true;
-    char cmd[128];
-    sprintf(cmd, "%s > /dev/null 2> /dev/null", dasm_cmd);
-    is_valid = !system(cmd);
+    const char *configured = getenv("SPIKE_DASM");
+    dasm_program = configured && configured[0] ? configured : "spike-dasm";
+    is_valid = execute_dasm_cmd(0x00000013);
+    if (is_valid) {
+      printf("DiffTest disassembly enabled: %s\n", dasm_program.c_str());
+    } else {
+      printf("DiffTest disassembly unavailable: cannot run %s; set SPIKE_DASM to an executable "
+             "spike-dasm path or add its directory to PATH\n", dasm_program.c_str());
+    }
   }
   return is_valid;
 }
 
-static void execute_dasm_cmd() {
-  FILE *ptr = popen(dasm_cmd, "r");
-  if (ptr) {
-    fgets(dasm_result, sizeof(dasm_result), ptr);
-    pclose(ptr);
-  } else {
-    printf("popen %s error\n", dasm_cmd);
-  }
-}
-
 const char *spike_dasm(uint64_t inst) {
-  char inst_hex_string[17];
-  sprintf(inst_hex_string, "%016lx", inst);
-  memcpy(dasm_cmd + dasm_offset, inst_hex_string, 16);
-  execute_dasm_cmd();
-  char *first_n_occ = strpbrk(dasm_result, "\n");
-  if (first_n_occ)
-    *first_n_occ = '\0';
+  if (!spike_valid() || !execute_dasm_cmd(inst)) {
+    snprintf(dasm_result, sizeof(dasm_result), "disassembly unavailable");
+  }
   return dasm_result;
 }
 
