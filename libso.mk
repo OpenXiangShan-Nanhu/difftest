@@ -3,7 +3,7 @@ CC_OBJ_DIR	 = $(abspath $(BUILD_DIR)/cc_obj)
 
 LIB_CSRC_DIR 	 = $(abspath ./src/test/csrc/vcs)
 LIB_CXXFILES 	 = $(SIM_CXXFILES) $(shell find $(LIB_CSRC_DIR) -name "*.cpp")
-LIB_CXXFLAGS 	 = -m64 -c -fPIC -g -std=c++11
+LIB_CXXFLAGS 	 = -m64 -c -fPIC -g -std=c++17
 LIB_CXXFLAGS 	+= $(subst \\\",\", $(SIM_CXXFLAGS)) $(SIM_LDFLAGS) -I$(LIB_CSRC_DIR) -DNUM_CORES=$(NUM_CORES)
 
 ifeq ($(WITH_DRAMSIM3),1)

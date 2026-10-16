@@ -1,0 +1,96 @@
+#ifndef DIFFTEST_RVWMO_MEMORY_H
+#define DIFFTEST_RVWMO_MEMORY_H
+
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace rvwmo {
+
+struct MemoryWriter {
+  uint32_t hart = 0;
+  uint64_t uid = 0;
+  bool operator==(const MemoryWriter &other) const;
+  bool operator<(const MemoryWriter &other) const;
+};
+
+struct MemoryStore {
+  MemoryWriter writer;
+  uint64_t po = 0;
+  uint64_t address = 0;
+  std::vector<uint8_t> bytes;
+  std::vector<uint8_t> mask;
+};
+
+struct MemoryByte {
+  uint8_t value = 0;
+  std::optional<MemoryWriter> writer;
+  // Explicit SQ forwarding can precede the source store's local commit.
+  bool deferred = false;
+  bool local_forward = false;
+  std::optional<uint64_t> sampled_local_po;
+};
+
+struct MemorySnapshot {
+  uint64_t id = 0;
+  uint32_t hart = 0;
+  uint64_t po = 0;
+  uint64_t time = 0;
+  uint64_t address = 0;
+  std::vector<uint8_t> mask;
+  std::vector<MemoryByte> bytes;
+};
+
+// Backing callbacks allow GlobalMem to reuse the existing golden memory allocation.
+// Callers provide independent REF-checked store bytes, never load-result bytes.
+class Memory {
+public:
+  using ReadGlobal = std::function<uint8_t(uint64_t)>;
+  using WriteGlobal = std::function<void(uint64_t, uint8_t)>;
+  Memory(ReadGlobal read, WriteGlobal write);
+
+  std::string commit_local(const MemoryStore &store);
+  // writers[i] names the logical store responsible for transaction byte i.
+  // completed contains all merged logical stores, including overwritten stores.
+  std::string commit_global(uint64_t address, const std::vector<uint8_t> &bytes, const std::vector<uint8_t> &mask,
+                            const std::vector<MemoryWriter> &writers, const std::vector<MemoryWriter> &completed);
+  std::string sample(uint32_t hart, uint64_t po, uint64_t time, uint64_t address, const std::vector<uint8_t> &mask,
+                     const std::vector<std::optional<MemoryWriter>> &forwarded, MemorySnapshot &snapshot);
+  std::string resolve(MemorySnapshot &snapshot) const;
+  std::string compare(MemorySnapshot &snapshot, const std::vector<uint8_t> &actual) const;
+  // Release on retirement or cancellation. Double release is an error.
+  std::string release(uint64_t snapshot_id);
+  size_t pending_stores() const;
+  size_t pending_snapshots() const {
+    return snapshots_.size();
+  }
+
+private:
+  struct StoreRecord {
+    MemoryStore store;
+    bool pending = true;
+  };
+  struct SnapshotRecord {
+    uint32_t hart = 0;
+    uint64_t po = 0;
+    uint64_t address = 0;
+    std::vector<MemoryWriter> sources;
+    std::vector<std::optional<uint64_t>> latest_local_po;
+  };
+  ReadGlobal read_;
+  WriteGlobal write_;
+  uint64_t next_snapshot_ = 1;
+  std::map<MemoryWriter, StoreRecord> stores_;
+  std::map<MemoryWriter, size_t> references_;
+  std::map<uint64_t, MemoryWriter> global_writers_;
+  std::map<uint32_t, std::map<uint64_t, std::vector<MemoryWriter>>> local_;
+  std::map<uint64_t, SnapshotRecord> snapshots_;
+  void retire_store(const MemoryWriter &writer);
+  void collect_store(const MemoryWriter &writer);
+};
+
+} // namespace rvwmo
+#endif
