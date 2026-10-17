@@ -154,7 +154,9 @@ CheckResult PpoChecker::retire(const RetiredInstruction &instruction) {
       hart.pending_uid = instruction.uid;
       return {CheckStatus::Pending, 0, "retired operation awaits its observation timestamp"};
     }
-    if (op.byte_mask.empty() || op.address > std::numeric_limits<uint64_t>::max() - (op.byte_mask.size() - 1))
+    if (op.byte_mask.empty() ||
+        std::none_of(op.byte_mask.begin(), op.byte_mask.end(), [](uint8_t byte) { return byte != 0; }) ||
+        op.address > std::numeric_limits<uint64_t>::max() - (op.byte_mask.size() - 1))
       return {CheckStatus::Invalid, 0, "invalid byte range"};
     if (op.load && op.read_sources.size() != op.byte_mask.size()) {
       hart.pending = true;
