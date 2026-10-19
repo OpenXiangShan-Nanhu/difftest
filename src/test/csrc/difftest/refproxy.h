@@ -174,6 +174,7 @@ public:
   f(ref_write_pte, difftest_write_pte, bool, uint64_t, uint64_t)                                             \
   f(ref_set_tlb_check, difftest_set_tlb_check, void, void*, bool (*)(void*, uint64_t, bool))                  \
   f(ref_put_gmaddr, difftest_put_gmaddr, void, void *)                                                      \
+  f(ref_set_load_reader, difftest_set_load_reader, void, bool (*)(void*, uint64_t, size_t, uint8_t*), void*) \
   f(ref_skip_one, difftest_skip_one, void, bool, bool, uint32_t, uint64_t)                                  \
   f(ref_exec_fence_i, difftest_exec_fence_i, int, uint64_t, uint32_t)                                      \
   f(ref_guided_exec, difftest_guided_exec, void, void*)                                                     \
@@ -256,6 +257,13 @@ public:
     return regs_vec.value + src;
   }
 #endif // CONFIG_DIFFTEST_ARCHVECREGSTATE
+  bool set_load_reader(bool (*reader)(void *, uint64_t, size_t, uint8_t *), void *context) {
+    if (!ref_set_load_reader)
+      return false;
+    ref_set_load_reader(reader, context);
+    return true;
+  }
+
   inline void sync(bool is_from_dut = false) {
     ref_regcpy(&regs_int, is_from_dut, is_from_dut);
   }
