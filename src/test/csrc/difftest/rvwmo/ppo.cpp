@@ -144,6 +144,8 @@ CheckResult PpoChecker::retire(const RetiredInstruction &instruction) {
   }
   if (!metadata.complete)
     return {CheckStatus::Unsupported, 0, "incomplete external dependency metadata"};
+  if (!metadata.destination_sources.empty() && metadata.destination_sources.size() != metadata.destinations.size())
+    return {CheckStatus::Invalid, 0, "dependency destination carrier count mismatch"};
   for (const auto &op: instruction.memory) {
     if (op.id.hart != instruction.hart || op.id.uid != instruction.uid || op.id.epoch != instruction.epoch)
       return {CheckStatus::Invalid, 0, "memory operation identity differs from retired instruction"};
@@ -185,13 +187,15 @@ CheckResult PpoChecker::retire(const RetiredInstruction &instruction) {
   }
   if (metadata.control_transfer)
     hart.control.include(hart.dependencies.read(metadata.sources));
-  auto destination = metadata.carries_to_destination ? hart.dependencies.read(metadata.sources) : DependencySummary{};
+  DependencySummary generated_read;
   for (const auto &op: instruction.memory) {
     update_operation(hart, op, metadata);
     if (op.load)
-      destination.include({true, op.read_time.rank, op.id});
+      generated_read.include({true, op.read_time.rank, op.id});
   }
-  hart.dependencies.write(metadata.destinations, destination);
+  auto propagated = hart.dependencies.propagate(metadata, generated_read);
+  if (!propagated)
+    return propagated;
   hart.epoch = instruction.epoch;
   hart.last_uid = instruction.uid;
   hart.has_retired = true;

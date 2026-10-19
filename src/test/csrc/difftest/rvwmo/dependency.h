@@ -14,6 +14,7 @@ class DependencyTracker {
 public:
   DependencySummary read(const std::vector<unsigned> &registers) const;
   void write(const std::vector<unsigned> &registers, const DependencySummary &summary);
+  CheckResult propagate(const DependencyMetadata &metadata, const DependencySummary &generated_read = {});
 
 private:
   std::map<unsigned, DependencySummary> registers_;

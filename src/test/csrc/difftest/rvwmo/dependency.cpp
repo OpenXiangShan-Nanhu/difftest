@@ -20,6 +20,73 @@ void DependencyTracker::write(const std::vector<unsigned> &registers, const Depe
       registers_[reg] = summary;
 }
 
+CheckResult DependencyTracker::propagate(const DependencyMetadata &metadata, const DependencySummary &generated_read) {
+  if (!metadata.destination_sources.empty() && metadata.destination_sources.size() != metadata.destinations.size())
+    return {CheckStatus::Invalid, 0, "dependency destination carrier count mismatch"};
+  std::vector<DependencySummary> replacements;
+  for (size_t destination = 0; destination < metadata.destinations.size(); ++destination) {
+    DependencySummary summary = generated_read;
+    if (!metadata.destination_sources.empty())
+      summary.include(read(metadata.destination_sources[destination]));
+    else if (metadata.carries_to_destination)
+      summary.include(read(metadata.sources));
+    replacements.push_back(summary);
+  }
+  // In particular, CSRRW rd=rs1 reads both old values before either is replaced.
+  for (size_t destination = 0; destination < metadata.destinations.size(); ++destination)
+    write({metadata.destinations[destination]}, replacements[destination]);
+  return {};
+}
+
+namespace {
+CheckResult decode_system(uint32_t instruction, DependencyMetadata &metadata) {
+  const unsigned funct = (instruction >> 12) & 7;
+  if (!funct) {
+    switch (instruction) {
+      case 0x00000073: // ECALL
+      case 0x00100073: // EBREAK
+      case 0x10200073: // SRET
+      case 0x30200073: // MRET
+      case 0x10500073: // WFI
+        return {};
+      default: return {CheckStatus::Unsupported, 0, "system ordering instruction requires explicit adapter metadata"};
+    }
+  }
+  if (funct == 4)
+    return {CheckStatus::Unsupported, 0, "reserved system instruction"};
+  const unsigned csr = instruction >> 20;
+  if (csr == 1 || csr == 2 || csr == 3 || csr == 0x100 || csr == 0x104 || csr == 0x144 || csr == 0x310)
+    return {CheckStatus::Unsupported, 0, "CSR alias or field dependency tracking requires explicit adapter metadata"};
+  const unsigned rd = (instruction >> 7) & 31, rs1 = (instruction >> 15) & 31;
+  const unsigned csr_register = 64 + csr;
+  const bool immediate = funct & 4;
+  const bool exchange = (funct & 3) == 1;
+  const bool reads_csr = !exchange || rd != 0;
+  const bool writes_csr = exchange || rs1 != 0;
+  // Read-only CSRs do not participate in syntactic dependency tracking.
+  const bool read_only = (csr >> 10) == 3;
+  if (!immediate && rs1)
+    metadata.sources.push_back(rs1);
+  if (reads_csr && !read_only)
+    metadata.sources.push_back(csr_register);
+  if (rd) {
+    metadata.destinations.push_back(rd);
+    metadata.destination_sources.push_back(reads_csr && !read_only ? std::vector<unsigned>{csr_register}
+                                                                   : std::vector<unsigned>{});
+  }
+  if (writes_csr) {
+    metadata.destinations.push_back(csr_register);
+    std::vector<unsigned> carriers;
+    if (!exchange && !read_only)
+      carriers.push_back(csr_register);
+    if (!immediate && rs1)
+      carriers.push_back(rs1);
+    metadata.destination_sources.push_back(std::move(carriers));
+  }
+  return {};
+}
+} // namespace
+
 CheckResult decode_dependencies(uint32_t inst, DependencyMetadata &m) {
   m = {};
   m.provided = true;
@@ -84,6 +151,7 @@ CheckResult decode_dependencies(uint32_t inst, DependencyMetadata &m) {
     return {};
   }
   switch (inst & 127) {
+    case 0x73: return decode_system(inst, m);
     case 0x03:
       m.sources = m.address_sources = {rs1};
       m.destinations = {rd};
