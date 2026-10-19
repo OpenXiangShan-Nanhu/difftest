@@ -57,6 +57,9 @@ struct DependencyMetadata {
   bool complete = true;
   std::vector<unsigned> sources;
   std::vector<unsigned> destinations;
+  // Optional per-destination carriers. Empty outer vector uses sources above;
+  // an empty inner vector explicitly clears that destination's dependencies.
+  std::vector<std::vector<unsigned>> destination_sources;
   std::vector<unsigned> address_sources;
   std::vector<unsigned> data_sources;
   bool carries_to_destination = true;
@@ -64,6 +67,14 @@ struct DependencyMetadata {
   bool fence = false;
   uint8_t fence_predecessor = 0;
   uint8_t fence_successor = 0;
+};
+
+// ModeledWitness identifies the source required by the fixed-order read-value
+// axiom. It does not claim to identify a physical cache/forwarding data source.
+enum class ReadSourceKind {
+  Unavailable,
+  ModeledWitness,
+  Observed
 };
 
 struct MemoryOperation {
@@ -83,6 +94,7 @@ struct MemoryOperation {
   OperationId paired_lr;
   ObservationTime read_time;
   ObservationTime write_time;
+  ReadSourceKind source_kind = ReadSourceKind::Observed;
   // One writer per byte_mask element, including initialization writers.
   std::vector<OperationId> read_sources;
 };

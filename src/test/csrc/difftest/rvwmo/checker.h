@@ -8,25 +8,42 @@
 
 namespace rvwmo {
 
+enum class StoreVerification {
+  Provisional,
+  Verified
+};
+
 struct RetiredLoad {
   OperationId id;
   std::vector<uint8_t> bytes;
 };
 
-// Event transport and REF execution remain outside this class. Store bytes must
-// already be independently REF-checked when record_store is called.
+// Event transport and REF execution remain outside this class. Provisional
+// store bytes may advance candidate memory state, but cannot earn a final pass
+// until independently computed REF stores have verified every provisional write.
 class Checker {
 public:
   explicit Checker(Memory &memory) : memory_(memory) {}
   // Allocates a collision-free MemoryWriter for full epoch/UID/subaccess identity.
   CheckResult memory_writer(const OperationId &operation, MemoryWriter &writer);
-  CheckResult record_store(const MemoryStore &store, const MemoryOperation &operation);
+  CheckResult record_store(const MemoryStore &store, const MemoryOperation &operation,
+                           StoreVerification verification = StoreVerification::Verified);
+  CheckResult verify_store(const OperationId &operation, const MemoryStore &reference);
+  // Returns candidate expected bytes, not a proof that this load has passed PPO
+  // or value comparison. It neither consumes retirement nor mutates PPO state.
+  CheckResult get_expected_load(const OperationId &operation, uint32_t attempt, std::vector<uint8_t> &bytes);
+  // Provisional REF input may assume unresolved local stores preserve same-byte
+  // program order. Final canonical read-value and PPO checks remain mandatory.
+  CheckResult get_reference_candidate_load(const OperationId &operation, uint32_t attempt, std::vector<uint8_t> &bytes);
   CheckResult observe_global(uint64_t address, const std::vector<uint8_t> &bytes, const std::vector<uint8_t> &mask,
                              const std::vector<MemoryWriter> &writers, const std::vector<MemoryWriter> &completed,
                              ObservationTime time);
   CheckResult observe_global(uint64_t address, const std::vector<uint8_t> &bytes, const std::vector<uint8_t> &mask,
                              const std::vector<MemoryWriter> &writers, const std::vector<MemoryWriter> &completed,
                              const std::vector<ObservationTime> &completion_times);
+  // ModeledWitness derives read_sources internally from the resolved snapshot;
+  // caller-provided identities are ignored in that case. Actual load bytes are
+  // still compared independently after PPO succeeds at architectural retirement.
   CheckResult observe_load(const MemoryOperation &operation, uint64_t po,
                            const std::vector<std::optional<MemoryWriter>> &forwarded);
   CheckResult cancel_load(const OperationId &operation, uint32_t attempt);
@@ -59,7 +76,9 @@ private:
   std::map<MemoryWriter, OperationId> writers_;
   std::map<OperationId, MemoryWriter> operation_writers_;
   std::map<uint32_t, uint64_t> next_writer_uid_;
+  std::set<uint32_t> exhausted_writer_harts_;
   std::map<OperationId, MemoryOperation> stores_;
+  std::map<OperationId, MemoryStore> unverified_stores_;
   std::set<OperationId> checked_stores_;
   std::set<OperationId> completed_stores_;
   std::map<LoadKey, LoadSample> loads_;

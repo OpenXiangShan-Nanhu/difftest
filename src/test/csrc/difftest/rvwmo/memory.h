@@ -5,6 +5,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -56,14 +57,25 @@ public:
   // writers[i] names the logical store responsible for transaction byte i.
   // completed contains all merged logical stores, including overwritten stores.
   std::string commit_global(uint64_t address, const std::vector<uint8_t> &bytes, const std::vector<uint8_t> &mask,
-                            const std::vector<MemoryWriter> &writers, const std::vector<MemoryWriter> &completed);
+                            const std::vector<MemoryWriter> &writers, const std::vector<MemoryWriter> &completed,
+                            const std::vector<uint64_t> &completion_times = {});
   std::string sample(uint32_t hart, uint64_t po, uint64_t time, uint64_t address, const std::vector<uint8_t> &mask,
                      const std::vector<std::optional<MemoryWriter>> &forwarded, MemorySnapshot &snapshot);
   std::string resolve(MemorySnapshot &snapshot) const;
+  // Derives a specification witness independently of observed forwarding tags.
+  // All candidate stores need a global rank before this can complete.
+  std::string resolve_modeled(MemorySnapshot &snapshot) const;
+  // Provisional REF input only: unknown local write ranks may be estimated
+  // from same-address program order. This is never a consistency certificate;
+  // final retirement must resolve_modeled and check PPO and actual bytes.
+  std::string resolve_candidate(MemorySnapshot &snapshot) const;
   std::string compare(MemorySnapshot &snapshot, const std::vector<uint8_t> &actual) const;
   // Release on retirement or cancellation. Double release is an error.
   std::string release(uint64_t snapshot_id);
   size_t pending_stores() const;
+  bool has_snapshot_reference(const MemoryWriter &writer) const {
+    return references_.count(writer) != 0;
+  }
   size_t pending_snapshots() const {
     return snapshots_.size();
   }
@@ -72,13 +84,19 @@ private:
   struct StoreRecord {
     MemoryStore store;
     bool pending = true;
+    std::optional<uint64_t> global_time;
   };
   struct SnapshotRecord {
     uint32_t hart = 0;
     uint64_t po = 0;
     uint64_t address = 0;
+    uint64_t time = 0;
     std::vector<MemoryWriter> sources;
     std::vector<std::optional<uint64_t>> latest_local_po;
+    std::vector<uint8_t> mask;
+    std::vector<MemoryByte> global_bytes;
+    std::vector<std::optional<uint64_t>> global_times;
+    std::set<MemoryWriter> candidates;
   };
   ReadGlobal read_;
   WriteGlobal write_;
@@ -86,8 +104,10 @@ private:
   std::map<MemoryWriter, StoreRecord> stores_;
   std::map<MemoryWriter, size_t> references_;
   std::map<uint64_t, MemoryWriter> global_writers_;
+  std::map<uint64_t, uint64_t> global_times_;
   std::map<uint32_t, std::map<uint64_t, std::vector<MemoryWriter>>> local_;
   std::map<uint64_t, SnapshotRecord> snapshots_;
+  void retain_candidate(SnapshotRecord &snapshot, const MemoryWriter &writer);
   void retire_store(const MemoryWriter &writer);
   void collect_store(const MemoryWriter &writer);
 };

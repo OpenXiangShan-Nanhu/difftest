@@ -32,7 +32,11 @@ CheckResult Checker::memory_writer(const OperationId &operation, MemoryWriter &w
     writer = found->second;
     return {};
   }
+  if (exhausted_writer_harts_.count(operation.hart))
+    return remember_failure(invalid("memory writer identity space exhausted"));
   auto &next = next_writer_uid_[operation.hart];
+  if (!next)
+    next = 1; // Memory reserves zero for unavailable provenance.
   while (writers_.count({operation.hart, next})) {
     if (next == std::numeric_limits<uint64_t>::max())
       return remember_failure(invalid("memory writer identity space exhausted"));
@@ -41,10 +45,15 @@ CheckResult Checker::memory_writer(const OperationId &operation, MemoryWriter &w
   writer = {operation.hart, next};
   operation_writers_[operation] = writer;
   writers_[writer] = operation;
+  if (next == std::numeric_limits<uint64_t>::max())
+    exhausted_writer_harts_.insert(operation.hart);
+  else
+    ++next;
   return {};
 }
 
-CheckResult Checker::record_store(const MemoryStore &store, const MemoryOperation &operation) {
+CheckResult Checker::record_store(const MemoryStore &store, const MemoryOperation &operation,
+                                  StoreVerification verification) {
   if (!failure_)
     return failure_;
   if (!operation.store || store.writer.hart != operation.id.hart)
@@ -61,8 +70,74 @@ CheckResult Checker::record_store(const MemoryStore &store, const MemoryOperatio
     return remember_failure(invalid(error));
   writers_[store.writer] = operation.id;
   operation_writers_[operation.id] = store.writer;
+  auto &next = next_writer_uid_[store.writer.hart];
+  if (store.writer.uid >= next) {
+    if (store.writer.uid == std::numeric_limits<uint64_t>::max())
+      exhausted_writer_harts_.insert(store.writer.hart);
+    else
+      next = store.writer.uid + 1;
+  }
   stores_[operation.id] = operation;
+  if (verification == StoreVerification::Provisional)
+    unverified_stores_[operation.id] = store;
   return accepted_event(poll());
+}
+
+CheckResult Checker::verify_store(const OperationId &operation, const MemoryStore &reference) {
+  if (!failure_)
+    return failure_;
+  auto found = unverified_stores_.find(operation);
+  if (found == unverified_stores_.end())
+    return remember_failure(invalid("store verification references an unknown or already verified operation"));
+  const auto &candidate = found->second;
+  bool matches = reference.writer == candidate.writer && reference.po == candidate.po &&
+                 reference.address == candidate.address && reference.mask == candidate.mask &&
+                 reference.bytes.size() == candidate.bytes.size();
+  if (matches)
+    for (size_t byte = 0; byte < candidate.mask.size(); ++byte)
+      if (candidate.mask[byte] && candidate.bytes[byte] != reference.bytes[byte])
+        matches = false;
+  if (!matches)
+    return remember_failure({CheckStatus::Violation, 0,
+                             "REF store differs from provisional store hart " + std::to_string(operation.hart) +
+                                 " uid " + std::to_string(operation.uid)});
+  unverified_stores_.erase(found);
+  return {};
+}
+
+CheckResult Checker::get_expected_load(const OperationId &operation, uint32_t attempt, std::vector<uint8_t> &bytes) {
+  if (!failure_)
+    return failure_;
+  auto found = loads_.find({operation, attempt});
+  if (found == loads_.end())
+    return pending("expected load awaits its observed final-attempt sample");
+  auto error = memory_.resolve_modeled(found->second.snapshot);
+  if (error.find("modeled read awaits") != std::string::npos)
+    return pending(error);
+  if (!error.empty())
+    return remember_failure({CheckStatus::Violation, 0, error});
+  bytes.clear();
+  for (const auto &byte: found->second.snapshot.bytes)
+    bytes.push_back(byte.value);
+  return {};
+}
+
+CheckResult Checker::get_reference_candidate_load(const OperationId &operation, uint32_t attempt,
+                                                  std::vector<uint8_t> &bytes) {
+  if (!failure_)
+    return failure_;
+  auto found = loads_.find({operation, attempt});
+  if (found == loads_.end())
+    return pending("reference candidate awaits load observation");
+  auto error = memory_.resolve_candidate(found->second.snapshot);
+  if (error.find("candidate read awaits") != std::string::npos)
+    return pending(error);
+  if (!error.empty())
+    return remember_failure({CheckStatus::Violation, 0, error});
+  bytes.clear();
+  for (const auto &byte: found->second.snapshot.bytes)
+    bytes.push_back(byte.value);
+  return {};
 }
 
 CheckResult Checker::observe_global(uint64_t address, const std::vector<uint8_t> &bytes,
@@ -93,7 +168,10 @@ CheckResult Checker::observe_global(uint64_t address, const std::vector<uint8_t>
     if (operation.write_time.valid && operation.write_time.rank != time.rank)
       return remember_failure(invalid("store has inconsistent global-completion timestamps"));
   }
-  auto error = memory_.commit_global(address, bytes, mask, writers, completed);
+  std::vector<uint64_t> ranks;
+  for (const auto &time: completion_times)
+    ranks.push_back(time.rank);
+  auto error = memory_.commit_global(address, bytes, mask, writers, completed, ranks);
   if (!error.empty())
     return remember_failure(invalid(error));
   for (size_t i = 0; i < completed.size(); ++i) {
@@ -140,8 +218,12 @@ CheckResult Checker::cancel_load(const OperationId &operation, uint32_t attempt)
 CheckResult Checker::release_store(const OperationId &operation) {
   if (!failure_)
     return failure_;
+  if (unverified_stores_.count(operation))
+    return pending("store still awaits independent REF verification");
   if (!checked_stores_.count(operation) || !completed_stores_.count(operation))
     return remember_failure(invalid("writer release requires global completion and checked retirement"));
+  if (memory_.has_snapshot_reference(operation_writers_.at(operation)))
+    return pending("writer still referenced by a snapshot candidate or baseline");
   auto references = [&](const MemoryOperation &sample) {
     if (sample.id == operation)
       return true;
@@ -150,9 +232,10 @@ CheckResult Checker::release_store(const OperationId &operation) {
         return true;
     return false;
   };
-  for (const auto &sample: loads_)
+  for (auto &sample: loads_) {
     if (references(sample.second.operation))
       return pending("writer still referenced by a captured load");
+  }
   for (const auto &hart: retirements_)
     for (const auto &retirement: hart.second)
       for (const auto &sample: retirement.instruction.memory)
@@ -186,15 +269,38 @@ CheckResult Checker::prepare(Retirement &retirement) {
     if (operation.address != observed.address || operation.byte_mask != observed.byte_mask)
       return invalid("retirement address/mask differs from observed final load attempt");
     operation.read_time = observed.read_time;
-    operation.read_sources = observed.read_sources;
-    if (operation.read_sources.size() != operation.byte_mask.size())
-      return pending("load lacks actual byte-writer provenance; model sources cannot replace it");
-    auto error = memory_.resolve(load->second.snapshot);
+    operation.source_kind = observed.source_kind;
+    operation.read_sources.clear();
+    if (operation.source_kind == ReadSourceKind::Unavailable)
+      return pending("load has neither observed source identities nor a model witness request");
+    auto error = operation.source_kind == ReadSourceKind::ModeledWitness
+                     ? memory_.resolve_modeled(load->second.snapshot)
+                     : memory_.resolve(load->second.snapshot);
     if (error == "forwarded source store has not locally committed" ||
-        error.find("forwarding identity required") != std::string::npos)
+        error.find("forwarding identity required") != std::string::npos ||
+        error.find("modeled read awaits") != std::string::npos)
       return pending(error);
     if (!error.empty())
       return {CheckStatus::Violation, 0, error};
+    if (operation.source_kind == ReadSourceKind::Observed) {
+      operation.read_sources = observed.read_sources;
+      if (operation.read_sources.size() != operation.byte_mask.size())
+        return pending("load awaits observed byte-writer identities");
+    } else {
+      // Only the resolved model snapshot may supply a modeled witness. Caller
+      // read_sources are deliberately ignored; actual bytes are checked later.
+      for (size_t byte = 0; byte < operation.byte_mask.size(); ++byte) {
+        const auto &source = load->second.snapshot.bytes[byte].writer;
+        if (!operation.byte_mask[byte] || !source) {
+          operation.read_sources.push_back(initialization_writer(operation.address + byte));
+          continue;
+        }
+        auto writer = writers_.find(*source);
+        if (writer == writers_.end())
+          return pending("canonical snapshot writer has no registered operation identity");
+        operation.read_sources.push_back(writer->second);
+      }
+    }
     bool actual_found = false;
     for (const auto &actual: retirement.loads)
       if (actual.id == operation.id) {
@@ -226,9 +332,16 @@ CheckResult Checker::drain(uint32_t hart) {
       auto &sample = loads_.at({operation.id, operation.attempt});
       for (const auto &actual: front.loads)
         if (actual.id == operation.id) {
-          auto error = memory_.compare(sample.snapshot, actual.bytes);
-          if (!error.empty())
-            return remember_failure({CheckStatus::Violation, 0, error});
+          if (operation.source_kind == ReadSourceKind::ModeledWitness) {
+            for (size_t byte = 0; byte < operation.byte_mask.size(); ++byte)
+              if (operation.byte_mask[byte] && sample.snapshot.bytes[byte].value != actual.bytes[byte])
+                return remember_failure(
+                    {CheckStatus::Violation, 0, "load value differs from modeled fixed-order witness"});
+          } else {
+            auto error = memory_.compare(sample.snapshot, actual.bytes);
+            if (!error.empty())
+              return remember_failure({CheckStatus::Violation, 0, error});
+          }
         }
     }
     for (const auto &operation: front.instruction.memory) {
@@ -285,6 +398,8 @@ CheckResult Checker::finalize() {
   auto result = poll();
   if (!result)
     return result;
+  if (!unverified_stores_.empty())
+    return pending("provisional stores remain unverified by REF");
   if (checked_stores_.size() != stores_.size())
     return pending("recorded stores have not all completed PPO retirement checks");
   if (pending_retirements() || !loads_.empty() || memory_.pending_snapshots() || memory_.pending_stores())
