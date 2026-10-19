@@ -83,6 +83,7 @@ class InstrCommit(val numPhyRegs: Int = 32) extends DifftestBaseBundle with HasV
   val pc = UInt(64.W)
   val instr = UInt(32.W)
   val robIdx = UInt(10.W)
+  val timestamp = UInt(64.W)
   val tlbId = UInt(10.W)
   val lqIdx = UInt(7.W)
   val sqIdx = UInt(7.W)
@@ -237,6 +238,8 @@ class FpCSRState extends DifftestBaseBundle {
 }
 
 class SbufferEvent extends DifftestBaseBundle with HasValid {
+  val timestamp = UInt(64.W)
+  val bufferId = UInt(16.W)
   val addr = UInt(64.W)
   val data = Vec(64, UInt(8.W))
   val mask = UInt(64.W)
@@ -273,6 +276,12 @@ class LoadSnapshotEvent extends DifftestBaseBundle with HasValid {
   val paddr = UInt(64.W)
   val mask = UInt(16.W)
   val clear = Bool()
+  // Data and source masks use the same aligned 16-byte block as paddr/mask.
+  val data = Vec(16, UInt(8.W))
+  val timestamp = UInt(64.W)
+  val sqMask = UInt(16.W)
+  val sbufferMask = UInt(16.W)
+  val sampleKind = UInt(8.W)
 }
 
 class AtomicEvent extends DifftestBaseBundle with HasValid {
