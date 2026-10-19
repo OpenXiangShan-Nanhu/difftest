@@ -292,6 +292,23 @@ class AtomicEvent extends DifftestBaseBundle with HasValid {
   val out = UInt(64.W)
 }
 
+// Observational phases; timestamps do not by themselves establish a GMO rank.
+// 1 read, 2 write, 3 begin, 4 request, 5 replay, 6 response, 7 finish, 8 cancel.
+class AtomicMemoryEvent extends DifftestBaseBundle with HasValid {
+  val timestamp = UInt(64.W)
+  val phase = UInt(8.W)
+  val identityValid = Bool()
+  val robidx = UInt(10.W)
+  val attempt = UInt(32.W)
+  val addr = UInt(64.W)
+  val data = UInt(64.W)
+  val mask = UInt(8.W)
+  val cmd = UInt(8.W)
+  val fuop = UInt(8.W)
+  val success = Bool()
+  val error = Bool()
+}
+
 class CMOInvalEvent extends DifftestBaseBundle with HasValid {
   val addr = UInt(64.W)
 }

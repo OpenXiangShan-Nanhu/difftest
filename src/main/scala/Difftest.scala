@@ -421,6 +421,11 @@ class DiffAtomicEvent extends AtomicEvent with DifftestBundle {
   override val squashGroup: Seq[String] = Seq("GOLDENMEM")
 }
 
+class DiffAtomicMemoryEvent extends AtomicMemoryEvent with DifftestBundle with DifftestWithIndex {
+  override val desiredCppName: String = "atomic_memory"
+  override val squashGroup: Seq[String] = Seq()
+}
+
 class DiffCMOInvalEvent extends CMOInvalEvent with DifftestBundle {
   override val desiredCppName: String = "cmo_inval"
   override val squashGroup: Seq[String] = Seq("GOLDENMEM")
