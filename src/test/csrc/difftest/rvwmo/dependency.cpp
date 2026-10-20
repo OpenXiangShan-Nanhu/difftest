@@ -186,6 +186,9 @@ CheckResult decode_dependencies(uint32_t inst, DependencyMetadata &m) {
       m.control_transfer = true;
       break;
     case 0x0f:
+      // FENCE.I synchronizes instruction fetch; it is not a data-memory fence.
+      if (inst == 0x0000100f)
+        break;
       if (((inst >> 12) & 7) != 0)
         return {CheckStatus::Unsupported, 0, "non-data fence requires adapter metadata"};
       if ((inst >> 28) != 0)
