@@ -192,6 +192,10 @@ CheckResult PpoChecker::retire(const RetiredInstruction &instruction) {
     update_operation(hart, op, metadata);
     if (op.load)
       generated_read.include({true, op.read_time.rank, op.id});
+    // A successful SC is a memory operation whose status destination can carry
+    // syntactic dependencies. Failed SCs have no memory event to contribute.
+    if (op.sc && op.store)
+      generated_read.include({true, op.write_time.rank, op.id});
   }
   auto propagated = hart.dependencies.propagate(metadata, generated_read);
   if (!propagated)
