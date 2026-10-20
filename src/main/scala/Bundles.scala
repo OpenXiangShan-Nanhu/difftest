@@ -263,6 +263,12 @@ class StoreEvent extends DifftestBaseBundle with HasValid {
   val robidx = UInt(10.W)
 }
 
+// A continuously sampled source clock drains fixed-delay memory probes even
+// when no instruction retires. It shares the memory observers' timebase.
+class MemoryTimeEvent extends DifftestBaseBundle {
+  val timestamp = UInt(64.W)
+}
+
 class StoreIdentityEvent extends DifftestBaseBundle with HasValid {
   val timestamp = UInt(64.W)
   val storeUid = UInt(64.W)
