@@ -855,12 +855,16 @@ int Emulator::tick() {
     if(end) {
       printf("Software killed simulation with code %d\n", code);
       fflush(stdout);
-      if(code == 0) {
-        trapCode = STATE_GOODTRAP;;
-      } else {
+      if (code != 0) {
         trapCode = STATE_ABORT;
+        return trapCode;
       }
+#if NUM_CORES <= 1 || defined(CONFIG_NO_DIFFTEST)
+      trapCode = STATE_GOODTRAP;
       return trapCode;
+#endif
+      // A UART marker is not an all-hart memory-check certificate. Continue
+      // stepping DiffTest until every hart and memory observation is finalized.
     }
   }
 
@@ -873,7 +877,10 @@ int Emulator::tick() {
 #endif
   if (difftest_exit) {
     if (difftest_exit == -1UL) {
+#if NUM_CORES <= 1 || defined(CONFIG_NO_DIFFTEST)
       trapCode = STATE_SIM_EXIT;
+#endif
+      // Multicore completion is decided by the all-hart DiffTest finalizer.
     } else {
       Info("The simulation aborted via the top-level exit of 0x%lx.\n", difftest_exit);
       trapCode = STATE_ABORT;

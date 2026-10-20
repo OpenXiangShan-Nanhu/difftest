@@ -146,7 +146,10 @@ public:
     return args;
   }
   bool is_good_trap() {
-#ifdef FUZZING
+#if NUM_CORES > 1 && !defined(CONFIG_NO_DIFFTEST)
+    // Only all-hart finalization can certify a multicore RVWMO run.
+    return trapCode == STATE_GOODTRAP;
+#elif defined(FUZZING)
     return !(trapCode == STATE_ABORT);
 #else
     return trapCode == STATE_GOODTRAP || trapCode == STATE_LIMIT_EXCEEDED || trapCode == STATE_SIM_EXIT;
