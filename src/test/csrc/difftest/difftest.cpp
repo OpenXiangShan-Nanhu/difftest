@@ -24,6 +24,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#if NUM_CORES > 1
+#include "rvwmo/runtime.h"
+#endif
 #if defined(CONFIG_DIFFTEST_SQUASH) && !defined(CONFIG_PLATFORM_FPGA)
 #include "svdpi.h"
 #endif // CONFIG_DIFFTEST_SQUASH && !CONFIG_PLATFORM_FPGA
@@ -35,6 +38,28 @@
 #endif // CONFIG_DIFFTEST_QUERY
 
 Difftest **difftest = NULL;
+#if NUM_CORES > 1
+static rvwmo::Runtime &multicore_runtime() {
+  static rvwmo::Runtime runtime(NUM_CORES);
+  return runtime;
+}
+static int runtime_error(const rvwmo::CheckResult &result, const char *phase) {
+  if (result) return 0;
+  const char *kind = result.status == rvwmo::CheckStatus::Violation ? "VIOLATION" :
+    result.status == rvwmo::CheckStatus::Unsupported ? "UNSUPPORTED" :
+    result.status == rvwmo::CheckStatus::Pending ? "INCOMPLETE" : "EVENT_ERROR";
+  Info("RVWMO %s during %s: %s\n", kind, phase, result.message.c_str());
+  return 1;
+}
+static void report_runtime_coverage() {
+  static bool reported = false;
+  if (!multicore_runtime().covered() && !reported) {
+    runtime_error(multicore_runtime().coverage(), "capability declaration");
+    reported = true;
+  }
+}
+#endif
+
 static bool external_fetch_af_config = false;
 static ExternalAfTracker external_af_trackers[NUM_CORES];
 
@@ -178,12 +203,27 @@ int init_nemuproxy(size_t ramsize = 0) {
 int difftest_state() {
   for (int i = 0; i < NUM_CORES; i++) {
     if (difftest[i]->get_trap_valid()) {
-      return difftest[i]->get_trap_code();
+      const int code = difftest[i]->get_trap_code();
+#if NUM_CORES > 1
+      if (code != STATE_GOODTRAP && code != STATE_SIM_EXIT) return code;
+      if (runtime_error(multicore_runtime().note_done(i, code), "hart completion")) return STATE_ABORT;
+#else
+      return code;
+#endif
     }
     if (difftest[i]->proxy && difftest[i]->proxy->get_status()) {
       return difftest[i]->proxy->get_status();
     }
   }
+#if NUM_CORES > 1
+  if (multicore_runtime().all_done()) {
+    const auto result = multicore_runtime().finish();
+    if (result.status == rvwmo::CheckStatus::Pending) return -1;
+    if (runtime_error(result, "all-hart finalization")) return STATE_ABORT;
+    Info("RVWMO scalar PPO/read-value checks passed for all participating harts\n");
+    return STATE_GOODTRAP;
+  }
+#endif
   return -1;
 }
 
@@ -222,13 +262,28 @@ int difftest_step() {
 #if defined(CONFIG_DIFFTEST_QUERY) && !defined(CONFIG_DIFFTEST_BATCH)
   difftest_query_step();
 #endif // CONFIG_DIFFTEST_QUERY
+#if NUM_CORES > 1
+  std::vector<DiffTestState *> states;
+  for (int i = 0; i < NUM_CORES; ++i) states.push_back(difftest[i]->get_dut());
+  if (runtime_error(multicore_runtime().capture(states), "event acquisition")) return 1;
+  report_runtime_coverage();
+#endif
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
   // Take all cores' snapshots before any core updates the shared GoldenMem.
   for (int i = 0; i < NUM_CORES; i++) {
+#if NUM_CORES > 1
+    if (multicore_runtime().covered()) continue;
+#endif
     difftest[i]->load_snapshot_record();
   }
 #endif // CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
   for (int i = 0; i < NUM_CORES; i++) {
+#if NUM_CORES > 1
+    if (multicore_runtime().done(i)) {
+      if (difftest[i]->drain_store_checks()) return 1;
+      continue;
+    }
+#endif
     int ret = difftest[i]->step();
     if (ret) {
       return ret;
@@ -1033,6 +1088,17 @@ int Difftest::do_instr_commit(int i) {
   }
 #endif
 
+#if NUM_CORES > 1
+  if (DEBUG_MODE_SKIP(dut->commit[i].valid, dut->commit[i].pc, dut->commit[i].inst))
+    multicore_runtime().exclude("debug-mode skipped instruction lacks complete RVWMO semantics");
+  if (runtime_error(multicore_runtime().before_commit(id, i, *dut, *proxy), "reference preparation")) return 1;
+  report_runtime_coverage();
+  if ((commit_instr & 0x7f) == 0x6b && dut->trap.hasTrap && dut->trap.pc == commit_pc) {
+    proxy->skip_one(dut->commit[i].isRVC, false, false, false, 0, 0, dut);
+    return runtime_error(multicore_runtime().after_commit(id, *proxy), "termination retirement");
+  }
+#endif
+
   // MMIO accessing should not be a branch or jump, just +2/+4 to get the next pc
   // to skip the checking of an instruction, just copy the reg state to reference design
   if (dut->commit[i].skip || (DEBUG_MODE_SKIP(dut->commit[i].valid, dut->commit[i].pc, dut->commit[i].inst))) {
@@ -1047,7 +1113,11 @@ int Difftest::do_instr_commit(int i) {
     // We use the physical register file to get wdata
     proxy->skip_one(dut->commit[i].isRVC, (dut->commit[i].rfwen && dut->commit[i].wdest != 0), dut->commit[i].fpwen,
                     dut->commit[i].vecwen, dut->commit[i].wdest, get_commit_data(i), dut);
+#if NUM_CORES > 1
+    return runtime_error(multicore_runtime().after_commit(id, *proxy), "skipped retirement validation");
+#else
     return 0;
+#endif
   }
 
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
@@ -1135,6 +1205,9 @@ int Difftest::do_instr_commit(int i) {
   active_translations.clear();
 #endif
 
+#if NUM_CORES > 1
+  if (runtime_error(multicore_runtime().after_commit(id, *proxy), "retirement validation")) result = 1;
+#endif
   return result;
 }
 
@@ -1400,6 +1473,15 @@ void Difftest::do_vec_load_check(int index, DifftestLoadEvent load_event) {
 #endif // CONFIG_DIFFTEST_LOADEVENT && CONFIG_DIFFTEST_ARCHVECREGSTATE
 
 int Difftest::do_load_check(int i) {
+#if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_LOADEVENT) && !defined(CONFIG_DIFFTEST_SQUASH)
+  if (multicore_runtime().covered() && dut->load[i].valid && dut->load[i].isLoad &&
+      !dut->load[i].isAtomic && !dut->load[i].isVLoad) {
+    // The scalar read was supplied before REF execution. It is compared even
+    // for x0 loads; final PPO/read-value obligations remain in the checker.
+    dut->load[i].valid = 0;
+    return 0;
+  }
+#endif
   // Handle load instruction carefully for SMP
   int result = 0;
 #ifdef CONFIG_DIFFTEST_LOADEVENT
@@ -1638,6 +1720,15 @@ int Difftest::do_load_check(int i) {
   return result;
 }
 
+int Difftest::drain_store_checks() {
+#ifdef CONFIG_DIFFTEST_STOREEVENT
+  store_event_record();
+  return do_store_check();
+#else
+  return 0;
+#endif
+}
+
 int Difftest::do_store_check() {
 #ifdef CONFIG_DIFFTEST_STOREEVENT
   while (!store_event_queue.empty()) {
@@ -1671,6 +1762,10 @@ int Difftest::do_store_check() {
       return 1;
     }
 
+#if NUM_CORES > 1
+    if (runtime_error(multicore_runtime().verify_store(id, store_event.storeUid, addr, data, mask),
+                      "independent reference store audit")) return 1;
+#endif
     store_event_queue.pop();
   }
 #endif // CONFIG_DIFFTEST_STOREEVENT
@@ -2301,6 +2396,16 @@ void dumpGoldenMem(const char *banner, uint64_t addr, uint64_t time) {
 
 #ifdef DEBUG_GOLDENMEM
 int Difftest::do_golden_memory_update() {
+#if NUM_CORES > 1
+  if (multicore_runtime().covered()) {
+#ifdef CONFIG_DIFFTEST_SBUFFEREVENT
+    for (int port = 0; port < CONFIG_DIFF_SBUFFER_WIDTH; ++port) dut->sbuffer[port].valid = 0;
+#endif
+    // Runtime processes all harts' writes in the observed source order.
+    return 0;
+  }
+#endif
+
   // Update Golden Memory info
   uint64_t cycleCnt = get_trap_event()->cycleCnt;
   static bool initDump = true;
