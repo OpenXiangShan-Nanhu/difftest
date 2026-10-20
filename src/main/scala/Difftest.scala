@@ -395,6 +395,16 @@ class DiffStoreEventQueue extends DiffStoreEvent with DifftestWithStamp with Dif
   override val squashQueue: Boolean = true
 }
 
+class DiffStoreIdentityEvent extends StoreIdentityEvent with DifftestBundle with DifftestWithIndex {
+  override val desiredCppName: String = "store_identity"
+  override val squashGroup: Seq[String] = Seq()
+}
+
+class DiffStoreLocalEvent extends StoreLocalEvent with DifftestBundle with DifftestWithIndex {
+  override val desiredCppName: String = "store_local"
+  override val squashGroup: Seq[String] = Seq()
+}
+
 class DiffLoadEvent extends LoadEvent with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "load"
   override val squashGroup: Seq[String] = Seq("REF", "GOLDENMEM")

@@ -240,6 +240,8 @@ class FpCSRState extends DifftestBaseBundle {
 class SbufferEvent extends DifftestBaseBundle with HasValid {
   val timestamp = UInt(64.W)
   val bufferId = UInt(16.W)
+  val groupId = UInt(64.W)
+  val byteWriterUid = Vec(64, UInt(64.W))
   val addr = UInt(64.W)
   val data = Vec(64, UInt(8.W))
   val mask = UInt(64.W)
@@ -252,11 +254,32 @@ class UncacheMMStoreEvent extends DifftestBaseBundle with HasValid {
 }
 
 class StoreEvent extends DifftestBaseBundle with HasValid {
+  val storeUid = UInt(64.W)
+  val groupId = UInt(64.W)
   val addr = UInt(64.W)
   val data = UInt(64.W)
   val mask = UInt(8.W)
   val pc = UInt(64.W)
   val robidx = UInt(10.W)
+}
+
+class StoreIdentityEvent extends DifftestBaseBundle with HasValid {
+  val timestamp = UInt(64.W)
+  val storeUid = UInt(64.W)
+  val robidx = UInt(10.W)
+  val sqidx = UInt(16.W)
+  val isVector = Bool()
+}
+
+class StoreLocalEvent extends StoreIdentityEvent {
+  val addr = UInt(64.W)
+  val data = Vec(16, UInt(8.W))
+  val mask = UInt(16.W)
+  val addressValid = Bool()
+  val dataValid = Bool()
+  val isUnaligned = Bool()
+  val wline = Bool()
+  val exception = Bool()
 }
 
 class LoadEvent extends DifftestBaseBundle with HasValid {
@@ -282,6 +305,7 @@ class LoadSnapshotEvent extends DifftestBaseBundle with HasValid {
   val sqMask = UInt(16.W)
   val sbufferMask = UInt(16.W)
   val sampleKind = UInt(8.W)
+  val writerUid = Vec(16, UInt(64.W))
 }
 
 class AtomicEvent extends DifftestBaseBundle with HasValid {
