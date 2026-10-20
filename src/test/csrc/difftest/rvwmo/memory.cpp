@@ -163,6 +163,16 @@ std::string Memory::commit_global(uint64_t address, const std::vector<uint8_t> &
     if (!mask[i])
       continue;
     write_(address + i, bytes[i]);
+    auto previous_writer = global_writers_.find(address + i);
+    if (previous_writer == global_writers_.end() || !(previous_writer->second == writers[i])) {
+      if (previous_writer != global_writers_.end()) {
+        const auto previous = previous_writer->second;
+        auto count = global_byte_references_.find(previous);
+        if (--count->second == 0) global_byte_references_.erase(count);
+        collect_store(previous);
+      }
+      ++global_byte_references_[writers[i]];
+    }
     global_writers_[address + i] = writers[i];
     if (times.empty())
       global_times_.erase(address + i);
@@ -402,8 +412,15 @@ std::string Memory::compare(MemorySnapshot &snapshot, const std::vector<uint8_t>
 }
 void Memory::collect_store(const MemoryWriter &writer) {
   auto found = stores_.find(writer);
-  if (found != stores_.end() && !found->second.pending && !references_.count(writer))
-    stores_.erase(found);
+  if (found != stores_.end() && found->second.pending) return;
+  if (references_.count(writer)) return;
+  if (found != stores_.end()) stores_.erase(found);
+  if (!has_global_reference(writer)) reclaimable_writers_.insert(writer);
+}
+std::vector<MemoryWriter> Memory::take_reclaimable_writers() {
+  std::vector<MemoryWriter> writers(reclaimable_writers_.begin(), reclaimable_writers_.end());
+  reclaimable_writers_.clear();
+  return writers;
 }
 void Memory::retire_store(const MemoryWriter &writer) {
   auto &record = stores_.at(writer);

@@ -50,6 +50,11 @@ public:
   // Caller must prove that caches/observers cannot reference this writer again.
   // Local pending, snapshot and queued-retirement references are checked here.
   CheckResult release_store(const OperationId &operation);
+  CheckResult collect_garbage();
+  std::vector<OperationId> take_released_stores();
+  size_t tracked_stores() const {
+    return stores_.size();
+  }
   // Enqueues retirement without blocking event acquisition. Pending is not an
   // error: poll after later global-completion or source-store events arrive.
   CheckResult retire(const RetiredInstruction &instruction, const std::vector<RetiredLoad> &loads);
@@ -81,6 +86,8 @@ private:
   std::map<OperationId, MemoryStore> unverified_stores_;
   std::set<OperationId> checked_stores_;
   std::set<OperationId> completed_stores_;
+  std::set<MemoryWriter> reclaim_candidates_;
+  std::vector<OperationId> released_stores_;
   std::map<LoadKey, LoadSample> loads_;
   std::map<uint32_t, std::deque<Retirement>> retirements_;
   std::map<uint32_t, std::pair<uint64_t, uint64_t>> last_enqueued_;

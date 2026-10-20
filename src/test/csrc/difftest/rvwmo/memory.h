@@ -73,6 +73,10 @@ public:
   // Release on retirement or cancellation. Double release is an error.
   std::string release(uint64_t snapshot_id);
   size_t pending_stores() const;
+  bool has_global_reference(const MemoryWriter &writer) const { return global_byte_references_.count(writer) != 0; }
+  // Notifications are opportunities: the caller must also check its own PPO
+  // and retirement references, retaining blocked candidates for later retry.
+  std::vector<MemoryWriter> take_reclaimable_writers();
   bool has_snapshot_reference(const MemoryWriter &writer) const {
     return references_.count(writer) != 0;
   }
@@ -104,6 +108,8 @@ private:
   std::map<MemoryWriter, StoreRecord> stores_;
   std::map<MemoryWriter, size_t> references_;
   std::map<uint64_t, MemoryWriter> global_writers_;
+  std::map<MemoryWriter, size_t> global_byte_references_;
+  std::set<MemoryWriter> reclaimable_writers_;
   std::map<uint64_t, uint64_t> global_times_;
   std::map<uint32_t, std::map<uint64_t, std::vector<MemoryWriter>>> local_;
   std::map<uint64_t, SnapshotRecord> snapshots_;

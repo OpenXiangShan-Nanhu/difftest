@@ -102,7 +102,7 @@ CheckResult Checker::verify_store(const OperationId &operation, const MemoryStor
                              "REF store differs from provisional store hart " + std::to_string(operation.hart) +
                                  " uid " + std::to_string(operation.uid)});
   unverified_stores_.erase(found);
-  return {};
+  return accepted_event(poll());
 }
 
 CheckResult Checker::get_expected_load(const OperationId &operation, uint32_t attempt, std::vector<uint8_t> &bytes) {
@@ -222,6 +222,8 @@ CheckResult Checker::release_store(const OperationId &operation) {
     return pending("store still awaits independent REF verification");
   if (!checked_stores_.count(operation) || !completed_stores_.count(operation))
     return remember_failure(invalid("writer release requires global completion and checked retirement"));
+  if (memory_.has_global_reference(operation_writers_.at(operation)))
+    return pending("writer still supplies one or more GlobalMem bytes");
   if (memory_.has_snapshot_reference(operation_writers_.at(operation)))
     return pending("writer still referenced by a snapshot candidate or baseline");
   auto references = [&](const MemoryOperation &sample) {
@@ -242,12 +244,49 @@ CheckResult Checker::release_store(const OperationId &operation) {
         if (references(sample))
           return pending("writer still referenced by queued retirement");
   ppo_.release_writer(operation);
+  released_stores_.push_back(operation);
   stores_.erase(operation);
   writers_.erase(operation_writers_.at(operation));
   operation_writers_.erase(operation);
   checked_stores_.erase(operation);
   completed_stores_.erase(operation);
   return {};
+}
+
+CheckResult Checker::collect_garbage() {
+  if (!failure_)
+    return failure_;
+  for (const auto &writer: memory_.take_reclaimable_writers())
+    reclaim_candidates_.insert(writer);
+  for (auto candidate = reclaim_candidates_.begin(); candidate != reclaim_candidates_.end();) {
+    auto writer = writers_.find(*candidate);
+    if (writer == writers_.end()) {
+      candidate = reclaim_candidates_.erase(candidate);
+      continue;
+    }
+    const auto operation = writer->second;
+    if (unverified_stores_.count(operation) || !checked_stores_.count(operation) ||
+        !completed_stores_.count(operation) || memory_.has_global_reference(*candidate) ||
+        memory_.has_snapshot_reference(*candidate)) {
+      ++candidate;
+      continue;
+    }
+    auto result = release_store(operation);
+    if (result.status == CheckStatus::Pending) {
+      ++candidate;
+      continue;
+    }
+    if (!result)
+      return result;
+    candidate = reclaim_candidates_.erase(candidate);
+  }
+  return {};
+}
+
+std::vector<OperationId> Checker::take_released_stores() {
+  auto released = std::move(released_stores_);
+  released_stores_.clear();
+  return released;
 }
 
 CheckResult Checker::prepare(Retirement &retirement) {
@@ -370,7 +409,11 @@ CheckResult Checker::retire(const RetiredInstruction &instruction, const std::ve
     return remember_failure(invalid("retirement queue requires increasing UID in one hart epoch"));
   last_enqueued_[instruction.hart] = {instruction.epoch, instruction.uid};
   retirements_[instruction.hart].push_back({instruction, loads});
-  return drain(instruction.hart);
+  auto result = drain(instruction.hart);
+  if (result.status != CheckStatus::Pass && result.status != CheckStatus::Pending)
+    return result;
+  auto collected = collect_garbage();
+  return collected ? result : collected;
 }
 
 CheckResult Checker::poll() {
@@ -384,7 +427,8 @@ CheckResult Checker::poll() {
     if (current.status == CheckStatus::Pending)
       result = current;
   }
-  return result;
+  auto collected = collect_garbage();
+  return collected ? result : collected;
 }
 
 size_t Checker::pending_retirements() const {
