@@ -1,4 +1,5 @@
 #include "dependency.h"
+#include <set>
 
 namespace rvwmo {
 void DependencySummary::include(const DependencySummary &other) {
@@ -36,6 +37,61 @@ CheckResult DependencyTracker::propagate(const DependencyMetadata &metadata, con
   for (size_t destination = 0; destination < metadata.destinations.size(); ++destination)
     write({metadata.destinations[destination]}, replacements[destination]);
   return {};
+}
+
+bool compose_dependencies(const DependencyMetadata &first, const DependencyMetadata &second,
+                          DependencyMetadata &composed) {
+  using Origins = std::set<unsigned>;
+  std::map<unsigned, Origins> bindings;
+  Origins control;
+  for (const auto *metadata: {&first, &second}) {
+    if (!metadata->provided || !metadata->complete || metadata->fence || !metadata->address_sources.empty() ||
+        !metadata->data_sources.empty() ||
+        (!metadata->destination_sources.empty() &&
+         metadata->destination_sources.size() != metadata->destinations.size()))
+      return false;
+    auto expand = [&](const std::vector<unsigned> &sources) {
+      Origins origins;
+      for (auto reg: sources) {
+        if (!reg)
+          continue;
+        auto binding = bindings.find(reg);
+        if (binding == bindings.end())
+          origins.insert(reg);
+        else
+          origins.insert(binding->second.begin(), binding->second.end());
+      }
+      return origins;
+    };
+    if (metadata->control_transfer) {
+      auto origins = expand(metadata->sources);
+      control.insert(origins.begin(), origins.end());
+    }
+    // All sources see the old bindings, including CSRRW's parallel assignments.
+    std::vector<Origins> replacements;
+    for (size_t destination = 0; destination < metadata->destinations.size(); ++destination) {
+      Origins origins;
+      if (!metadata->destination_sources.empty())
+        origins = expand(metadata->destination_sources[destination]);
+      else if (metadata->carries_to_destination)
+        origins = expand(metadata->sources);
+      replacements.push_back(std::move(origins));
+    }
+    for (size_t destination = 0; destination < metadata->destinations.size(); ++destination)
+      if (metadata->destinations[destination])
+        bindings[metadata->destinations[destination]] = std::move(replacements[destination]);
+  }
+  DependencyMetadata result;
+  result.provided = true;
+  result.carries_to_destination = false;
+  result.control_transfer = first.control_transfer || second.control_transfer;
+  result.sources.assign(control.begin(), control.end());
+  for (const auto &binding: bindings) {
+    result.destinations.push_back(binding.first);
+    result.destination_sources.emplace_back(binding.second.begin(), binding.second.end());
+  }
+  composed = std::move(result);
+  return true;
 }
 
 namespace {

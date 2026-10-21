@@ -19,6 +19,10 @@ public:
 private:
   std::map<unsigned, DependencySummary> registers_;
 };
+// Compose memory-free instructions without reading or changing live dependencies.
+// Output origins refer to register values at the start of the first segment.
+bool compose_dependencies(const DependencyMetadata &first, const DependencyMetadata &second,
+                          DependencyMetadata &composed);
 CheckResult decode_dependencies(uint32_t instruction, DependencyMetadata &metadata);
 } // namespace rvwmo
 #endif

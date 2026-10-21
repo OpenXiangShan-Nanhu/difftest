@@ -12,6 +12,15 @@ CheckResult pending(const std::string &message) {
 CheckResult accepted_event(CheckResult result) {
   return result.status == CheckStatus::Pending ? CheckResult{} : result;
 }
+bool memory_free_dependencies(const RetiredInstruction &instruction, DependencyMetadata &metadata) {
+  if (!instruction.memory.empty() || instruction.failed_sc)
+    return false;
+  metadata = instruction.dependencies;
+  if (!metadata.provided && !decode_dependencies(instruction.instruction, metadata))
+    return false;
+  return metadata.provided && metadata.complete && !metadata.fence && metadata.address_sources.empty() &&
+         metadata.data_sources.empty();
+}
 } // namespace
 
 CheckResult Checker::remember_failure(CheckResult result) {
@@ -375,7 +384,13 @@ CheckResult Checker::drain(uint32_t hart) {
             for (size_t byte = 0; byte < operation.byte_mask.size(); ++byte)
               if (operation.byte_mask[byte] && sample.snapshot.bytes[byte].value != actual.bytes[byte])
                 return remember_failure(
-                    {CheckStatus::Violation, 0, "load value differs from modeled fixed-order witness"});
+                    {CheckStatus::Violation, 0,
+                     "load value differs from modeled fixed-order witness: hart=" +
+                         std::to_string(operation.id.hart) + " uid=" + std::to_string(operation.id.uid) +
+                         " pc=" + std::to_string(front.instruction.pc) +
+                         " address=" + std::to_string(operation.address + byte) +
+                         " actual=" + std::to_string(actual.bytes[byte]) +
+                         " expected=" + std::to_string(sample.snapshot.bytes[byte].value)});
           } else {
             auto error = memory_.compare(sample.snapshot, actual.bytes);
             if (!error.empty())
@@ -408,7 +423,17 @@ CheckResult Checker::retire(const RetiredInstruction &instruction, const std::ve
       (last->second.first != instruction.epoch || last->second.second >= instruction.uid))
     return remember_failure(invalid("retirement queue requires increasing UID in one hart epoch"));
   last_enqueued_[instruction.hart] = {instruction.epoch, instruction.uid};
-  retirements_[instruction.hart].push_back({instruction, loads});
+  auto &queue = retirements_[instruction.hart];
+  DependencyMetadata first, second, composed;
+  if (!queue.empty() && queue.back().loads.empty() && loads.empty() &&
+      memory_free_dependencies(queue.back().instruction, first) && memory_free_dependencies(instruction, second) &&
+      compose_dependencies(first, second, composed)) {
+    // Keep the last UID for ordering validation; no memory operation identity is changed.
+    queue.back().instruction = instruction;
+    queue.back().instruction.dependencies = std::move(composed);
+  } else {
+    queue.push_back({instruction, loads});
+  }
   auto result = drain(instruction.hart);
   if (result.status != CheckStatus::Pass && result.status != CheckStatus::Pending)
     return result;
