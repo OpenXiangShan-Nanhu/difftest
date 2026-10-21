@@ -175,6 +175,7 @@ public:
   f(ref_set_tlb_check, difftest_set_tlb_check, void, void*, bool (*)(void*, uint64_t, bool))                  \
   f(ref_put_gmaddr, difftest_put_gmaddr, void, void *)                                                      \
   f(ref_set_load_reader, difftest_set_load_reader, void, bool (*)(void*, uint64_t, size_t, uint8_t*), void*) \
+  f(ref_set_instruction_observer, difftest_set_instruction_observer, void, void (*)(void*, uint64_t, uint32_t), void*) \
   f(ref_skip_one, difftest_skip_one, void, bool, bool, uint32_t, uint64_t)                                  \
   f(ref_exec_fence_i, difftest_exec_fence_i, int, uint64_t, uint32_t)                                      \
   f(ref_guided_exec, difftest_guided_exec, void, void*)                                                     \
@@ -261,6 +262,13 @@ public:
     if (!ref_set_load_reader)
       return false;
     ref_set_load_reader(reader, context);
+    return true;
+  }
+
+  bool set_instruction_observer(void (*observer)(void *, uint64_t, uint32_t), void *context) {
+    if (!ref_set_instruction_observer)
+      return false;
+    ref_set_instruction_observer(observer, context);
     return true;
   }
 

@@ -71,6 +71,8 @@ private:
     RetiredInstruction instruction;
     std::shared_ptr<Load> load;
     bool reader = false;
+    unsigned instruction_count = 1;
+    std::vector<std::pair<uint64_t, uint32_t>> reference_instructions;
   };
   struct Hart {
     uint64_t next_uid = 1;
@@ -106,6 +108,7 @@ private:
   uint64_t all_done_tick_ = 0;
   CheckResult coverage_;
   CheckResult failure_;
+  std::string ordering_pending_;
   CheckResult unsupported(const std::string &reason);
   CheckResult advance(uint64_t watermark);
   CheckResult observe(const std::shared_ptr<Load> &load, ObservationTime time);
@@ -113,6 +116,7 @@ private:
   CheckResult allocate(unsigned hart, uint16_t rob);
   void collect_released_stores();
   void timestamp(uint64_t cycle);
+  static void observe_reference_instruction(void *context, uint64_t pc, uint32_t instruction);
 };
 
 } // namespace rvwmo

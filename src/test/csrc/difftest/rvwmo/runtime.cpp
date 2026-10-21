@@ -13,6 +13,20 @@ CheckResult invalid(const std::string &message) {
 CheckResult pending(const std::string &message) {
   return {CheckStatus::Pending, 0, message};
 }
+// A retirement packet can contain up to 256 architectural instructions.
+// Reserving this UID interval preserves program order when expanding fusion.
+constexpr uint64_t allocation_uid_stride = 256;
+bool scalar_alu(uint32_t instruction) {
+  switch (instruction & 0x7f) {
+    case 0x13:
+    case 0x1b:
+    case 0x33:
+    case 0x3b:
+    case 0x37:
+    case 0x17: return true;
+    default: return false;
+  }
+}
 bool accepted(const CheckResult &result) {
   return result || result.status == CheckStatus::Pending;
 }
@@ -89,9 +103,10 @@ CheckResult Runtime::allocate(unsigned hart, uint16_t rob) {
       h.loads.erase(sample);
     }
   }
-  if (!h.next_uid)
+  if (h.next_uid > std::numeric_limits<uint64_t>::max() - allocation_uid_stride)
     return invalid("instruction observation UID exhausted");
-  h.allocations[rob] = {hart, 0, h.next_uid++, 0};
+  h.allocations[rob] = {hart, 0, h.next_uid, 0};
+  h.next_uid += allocation_uid_stride;
   return {};
 }
 
@@ -171,6 +186,7 @@ void Runtime::collect_released_stores() {
 CheckResult Runtime::advance(uint64_t watermark) {
   transport_watermark_ = watermark;
   loads_by_cycle_.erase(loads_by_cycle_.begin(), loads_by_cycle_.upper_bound(watermark));
+  ordering_pending_.clear();
   while (!events_.empty() && std::get<0>(events_.begin()->first) <= watermark) {
     auto &event = *events_.begin();
     ranks_consumed_ = 1;
@@ -178,6 +194,8 @@ CheckResult Runtime::advance(uint64_t watermark) {
     if (!result) {
       if (result.status != CheckStatus::Pending)
         failure_ = result;
+      else
+        ordering_pending_ = "cycle=" + std::to_string(std::get<0>(event.first)) + " " + result.message;
       return result;
     }
     if (ranks_consumed_ > std::numeric_limits<uint64_t>::max() - next_rank_)
@@ -469,8 +487,12 @@ CheckResult Runtime::before_commit(unsigned hart, unsigned port, DiffTestState &
       excluded_io = store != h.stores.end() && store->second.excluded_io;
     }
   }
-  if ((commit.skip && !excluded_io) || commit.nFused || commit.special)
-    return unsupported("skipped, fused or special retirement lacks complete RVWMO instruction semantics");
+  if ((commit.skip && !excluded_io) || commit.special ||
+      (commit.nFused && (commit.skip || commit.isLoad || commit.isStore || !scalar_alu(commit.instr))))
+    return unsupported("retirement lacks complete semantics: pc=" + std::to_string(commit.pc) +
+                       " instr=" + std::to_string(commit.instr) + " skip=" + std::to_string(commit.skip) +
+                       " fused=" + std::to_string(commit.nFused) + " special=" + std::to_string(commit.special) +
+                       " isStore=" + std::to_string(commit.isStore));
   auto unsupported_instruction = h.unsupported_allocations.find(allocation->second);
   if (unsupported_instruction != h.unsupported_allocations.end())
     return unsupported(unsupported_instruction->second);
@@ -503,7 +525,10 @@ CheckResult Runtime::before_commit(unsigned hart, unsigned port, DiffTestState &
   if (load_event.valid && load_event.isLoad) {
     auto sample = h.loads.find(allocation->second);
     if (sample == h.loads.end() || !sample->second->observed)
-      return pending("retired load awaits ordered final-attempt sample");
+      return pending("retired load awaits ordered final-attempt sample: hart=" + std::to_string(hart) +
+                     " pc=" + std::to_string(commit.pc) + " rob=" + std::to_string(commit.tlbId) + " uid=" +
+                     std::to_string(allocation->second.uid) + " present=" + std::to_string(sample != h.loads.end()) +
+                     " sourceClock=" + std::to_string(latest_cycle_) + " pending=" + ordering_pending_);
     auto load = sample->second;
     if (!load->coverage_reason.empty())
       return unsupported(load->coverage_reason);
@@ -545,6 +570,9 @@ CheckResult Runtime::before_commit(unsigned hart, unsigned port, DiffTestState &
       return pending("retired store awaits its local commit observation");
     active.instruction.memory.push_back(store.operation);
   }
+  active.instruction_count = unsigned(commit.nFused) + 1;
+  if (commit.nFused && !reference.set_instruction_observer(&Runtime::observe_reference_instruction, &h))
+    return unsupported("fused retirement requires reference instruction observation");
   h.active = std::move(active);
   return {};
 #else
@@ -555,12 +583,45 @@ CheckResult Runtime::before_commit(unsigned hart, unsigned port, DiffTestState &
   return unsupported("reference retirement ABI lacks scalar load capability");
 #endif
 }
+void Runtime::observe_reference_instruction(void *context, uint64_t pc, uint32_t instruction) {
+  auto &hart = *static_cast<Hart *>(context);
+  if (hart.active && hart.active->reference_instructions.size() <= hart.active->instruction_count)
+    hart.active->reference_instructions.emplace_back(pc, instruction);
+}
+
 CheckResult Runtime::after_commit(unsigned hart, RefProxy &reference) {
   auto &h = harts_.at(hart);
   if (!h.active)
     return {};
   auto active = std::move(*h.active);
   h.active.reset();
+  std::vector<RetiredInstruction> fused_tail;
+  if (active.instruction_count > 1) {
+    reference.set_instruction_observer(nullptr, nullptr);
+    if (active.reference_instructions.size() != active.instruction_count)
+      return invalid("fused reference instruction count differs from retirement packet");
+    uint64_t expected_pc = active.instruction.pc;
+    for (unsigned index = 0; index < active.reference_instructions.size(); ++index) {
+      const auto &observed = active.reference_instructions[index];
+      if (observed.first != expected_pc || !scalar_alu(observed.second))
+        return unsupported("fused packet contains nonsequential or non-ALU reference instructions");
+      if (index == 0) {
+        if (observed.second != active.instruction.instruction)
+          return {CheckStatus::Violation, 0, "first fused instruction differs from reference execution"};
+      } else {
+        RetiredInstruction instruction;
+        instruction.hart = hart;
+        instruction.uid = active.instruction.uid + index;
+        instruction.pc = observed.first;
+        instruction.instruction = observed.second;
+        auto decoded = decode_dependencies(instruction.instruction, instruction.dependencies);
+        if (!decoded)
+          return unsupported(decoded.message);
+        fused_tail.push_back(std::move(instruction));
+      }
+      expected_pc += 4;
+    }
+  }
   if (active.reader) {
     reference.set_load_reader(nullptr, nullptr);
     auto result = h.reader.finish();
@@ -590,6 +651,14 @@ CheckResult Runtime::after_commit(unsigned hart, RefProxy &reference) {
   if (!accepted(result)) {
     failure_ = result;
     return result;
+  }
+  for (const auto &instruction: fused_tail) {
+    result = checker_.retire(instruction, {});
+    if (!accepted(result)) {
+      failure_ = result;
+      return result;
+    }
+    h.last_retired_uid = instruction.uid;
   }
   if (active.load) {
     h.loads.erase(active.load->operation.id);
