@@ -145,17 +145,38 @@ CheckResult Runtime::complete_group(Group &group, ObservationTime time) {
     completed.push_back(member.second);
     completion_times.push_back({time.rank + completion_times.size(), true});
   }
+  auto architectural_mask = group.mask;
   for (size_t byte = 0; byte < group.bytes.size(); ++byte) {
     if (!group.mask[byte])
       continue;
+    if (!group.writers[byte]) {
+      // A miss refill may fill clean Sbuffer bytes and widen its physical mask.
+      // Such bytes are not logical stores. Required store bytes must still have
+      // a writer and are never removed from the architectural transaction.
+      const uint64_t address = group.address + byte;
+      bool required = false;
+      for (uint64_t member: group.members) {
+        const auto &store = h.stores.at(member).memory;
+        required |= address >= store.address && address - store.address < store.mask.size() &&
+                    store.mask[address - store.address];
+      }
+      if (!required) {
+        architectural_mask[byte] = 0;
+        continue;
+      }
+    }
     if (!group.writers[byte] || !group.members.count(group.writers[byte]))
-      return pending("global byte writer lacks matching store group membership");
+      return pending("global byte writer lacks matching store group membership: hart=" + std::to_string(group.hart) +
+                     " group=" + std::to_string(group.id) + " address=" + std::to_string(group.address) +
+                     " byte=" + std::to_string(byte) + " writer=" + std::to_string(group.writers[byte]) + " members=" +
+                     std::to_string(group.members.size()) + " first=" + std::to_string(*group.members.begin()));
     auto found = h.stores.find(group.writers[byte]);
     if (found == h.stores.end() || !found->second.recorded)
       return pending("global byte writer awaits local record");
     writers[byte] = found->second.memory.writer;
   }
-  auto result = checker_.observe_global(group.address, group.bytes, group.mask, writers, completed, completion_times);
+  auto result =
+      checker_.observe_global(group.address, group.bytes, architectural_mask, writers, completed, completion_times);
   if (accepted(result)) {
     ranks_consumed_ = completed.size();
     return {};
