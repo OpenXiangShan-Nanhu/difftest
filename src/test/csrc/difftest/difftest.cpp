@@ -23,6 +23,7 @@
 #include "spikedasm.h"
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <vector>
 #if NUM_CORES > 1
 #include "rvwmo/runtime.h"
@@ -39,9 +40,10 @@
 
 Difftest **difftest = NULL;
 #if NUM_CORES > 1
+static std::unique_ptr<rvwmo::Runtime> multicore_session;
 static rvwmo::Runtime &multicore_runtime() {
-  static rvwmo::Runtime runtime(NUM_CORES);
-  return runtime;
+  assert(multicore_session);
+  return *multicore_session;
 }
 static int runtime_error(const rvwmo::CheckResult &result, const char *phase) {
   if (result) return 0;
@@ -50,13 +52,6 @@ static int runtime_error(const rvwmo::CheckResult &result, const char *phase) {
     result.status == rvwmo::CheckStatus::Pending ? "INCOMPLETE" : "EVENT_ERROR";
   Info("RVWMO %s during %s: %s\n", kind, phase, result.message.c_str());
   return 1;
-}
-static void report_runtime_coverage() {
-  static bool reported = false;
-  if (!multicore_runtime().covered() && !reported) {
-    runtime_error(multicore_runtime().coverage(), "capability declaration");
-    reported = true;
-  }
 }
 #endif
 
@@ -175,6 +170,11 @@ bool is_pending_csr_write(uint32_t instruction) {
 #endif
 
 int difftest_init() {
+  assert(difftest == nullptr);
+#if NUM_CORES > 1
+  // A fuzzing process may initialize several independent DUT runs.
+  multicore_session = std::make_unique<rvwmo::Runtime>(NUM_CORES);
+#endif
 #ifdef CONFIG_DIFFTEST_PERFCNT
   difftest_perfcnt_init();
 #endif // CONFIG_DIFFTEST_PERFCNT
@@ -266,7 +266,6 @@ int difftest_step() {
   std::vector<DiffTestState *> states;
   for (int i = 0; i < NUM_CORES; ++i) states.push_back(difftest[i]->get_dut());
   if (runtime_error(multicore_runtime().capture(states), "event acquisition")) return 1;
-  report_runtime_coverage();
 #endif
 #ifdef CONFIG_DIFFTEST_LOADSNAPSHOTEVENT
   // Take all cores' snapshots before any core updates the shared GoldenMem.
@@ -330,6 +329,9 @@ void difftest_finish() {
   }
   delete[] difftest;
   difftest = NULL;
+#if NUM_CORES > 1
+  multicore_session.reset();
+#endif
 }
 
 #if defined(CONFIG_DIFFTEST_SQUASH) && !defined(CONFIG_PLATFORM_FPGA)
@@ -1092,7 +1094,6 @@ int Difftest::do_instr_commit(int i) {
   if (DEBUG_MODE_SKIP(dut->commit[i].valid, dut->commit[i].pc, dut->commit[i].inst))
     multicore_runtime().exclude("debug-mode skipped instruction lacks complete RVWMO semantics");
   if (runtime_error(multicore_runtime().before_commit(id, i, *dut, *proxy), "reference preparation")) return 1;
-  report_runtime_coverage();
   if ((commit_instr & 0x7f) == 0x6b && dut->trap.hasTrap && dut->trap.pc == commit_pc) {
     proxy->skip_one(dut->commit[i].isRVC, false, false, false, 0, 0, dut);
     return runtime_error(multicore_runtime().after_commit(id, *proxy), "termination retirement");
