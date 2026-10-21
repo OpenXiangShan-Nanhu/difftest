@@ -16,6 +16,26 @@ CheckResult pending(const std::string &message) {
 // A retirement packet can contain up to 256 architectural instructions.
 // Reserving this UID interval preserves program order when expanding fusion.
 constexpr uint64_t allocation_uid_stride = 256;
+enum class ScalarAccess {
+  None,
+  Read,
+  Write
+};
+ScalarAccess scalar_access(uint32_t instruction) {
+  if ((instruction & 3) == 3) {
+    if ((instruction & 0x7f) == 0x03)
+      return ScalarAccess::Read;
+    if ((instruction & 0x7f) == 0x23)
+      return ScalarAccess::Write;
+  } else if ((instruction & 3) == 0 || (instruction & 3) == 2) {
+    const unsigned function = (instruction >> 13) & 7;
+    if (function == 2 || function == 3)
+      return ScalarAccess::Read;
+    if (function == 6 || function == 7)
+      return ScalarAccess::Write;
+  }
+  return ScalarAccess::None;
+}
 bool scalar_alu(uint32_t instruction) {
   switch (instruction & 0x7f) {
     case 0x13:
@@ -474,8 +494,8 @@ CheckResult Runtime::capture(const std::vector<DiffTestState *> &states) {
     return coverage_;
   if (latest_cycle_ == 0)
     return {};
-  // The heartbeat advances during idle cycles. Global completions have one
-  // transport cycle; all earlier memory observations are now available.
+  // Memory probes are captured at their source edge, including global writes.
+  // Keep the current source cycle open for same-cycle cross-hart arbitration.
   auto result = advance(latest_cycle_ - 1);
   return result.status == CheckStatus::Pending ? CheckResult{} : result;
 #else
@@ -497,6 +517,8 @@ CheckResult Runtime::before_commit(unsigned hart, unsigned port, DiffTestState &
   const auto &commit = state.commit[port];
   if (h.active)
     return invalid("previous reference instruction has not completed");
+  if ((commit.instr & 0x7f) == 0x2f)
+    return unsupported("atomic retirement is outside current runtime coverage");
   auto allocation = h.allocations.find(commit.tlbId);
   if (allocation == h.allocations.end())
     return unsupported("retirement lacks complete allocation identity stream");
@@ -538,6 +560,10 @@ CheckResult Runtime::before_commit(unsigned hart, unsigned port, DiffTestState &
       dependencies.fence_successor = 3;
     }
   }
+  const auto access = scalar_access(commit.instr);
+  if (bool(commit.isLoad) != (access == ScalarAccess::Read) || bool(commit.isStore) != (access == ScalarAccess::Write))
+    return invalid("retirement memory classification differs from encoded instruction: hart=" + std::to_string(hart) +
+                   " pc=" + std::to_string(commit.pc) + " instruction=" + std::to_string(commit.instr));
   const auto &load_event = state.load[port];
   if (commit.isStore && load_event.valid && load_event.isLoad)
     return invalid("scalar retirement unexpectedly combines load and store effects");
@@ -763,9 +789,13 @@ CheckResult Runtime::finish() {
         }
       }
     }
-  auto result = advance(std::numeric_limits<uint64_t>::max());
+  // Hart retirement does not end memory execution: cache misses may still
+  // complete later. Never close future source cycles while stores are pending.
+  auto result = advance(latest_cycle_ ? latest_cycle_ - 1 : 0);
   if (!result)
     return result;
+  if (!events_.empty())
+    return pending("INCOMPLETE_RUN: captured memory events await source-cycle closure");
   return checker_.finalize();
 }
 
