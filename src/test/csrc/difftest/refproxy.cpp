@@ -321,7 +321,19 @@ NemuProxy::NemuProxy(int coreid, size_t ram_size) : RefProxy(coreid, ram_size, N
 #define SPIKE_ENV_VARIABLE "SPIKE_HOME"
 #define SPIKE_SO_FILENAME  "difftest/build/riscv64-spike-so"
 SpikeProxy::SpikeProxy(int coreid, size_t ram_size)
-    : RefProxy(coreid, ram_size, SPIKE_ENV_VARIABLE, SPIKE_SO_FILENAME) {}
+    : RefProxy(coreid, ram_size, SPIKE_ENV_VARIABLE, SPIKE_SO_FILENAME) {
+#if NUM_CORES > 1
+  // Policy zero preserves compatibility with references without this extension.
+  if ((!ref_set_ad_policy && DIFFTEST_AD_POLICY != 0) ||
+      (ref_set_ad_policy && !ref_set_ad_policy(DIFFTEST_AD_POLICY))) {
+    fprintf(stderr, "Core %d: reference cannot configure A/D policy %u\n", coreid,
+            unsigned(DIFFTEST_AD_POLICY));
+    fflush(stderr);
+    fflush(stdout);
+    abort();
+  }
+#endif
+}
 
 LinkedProxy::LinkedProxy(int coreid, size_t ram_size) : RefProxy(coreid, ram_size) {
   if (NUM_CORES > 1) {

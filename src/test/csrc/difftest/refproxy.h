@@ -169,6 +169,7 @@ public:
   f(ref_close, difftest_close, void, )                                                                      \
   f(ref_set_ramsize, difftest_set_ramsize, void, size_t)                                                    \
   f(ref_set_mhartid, difftest_set_mhartid, void, int)                                                       \
+  f(ref_set_ad_policy, difftest_set_ad_policy, bool, uint32_t)                                             \
   f(ref_flush_tlb, difftest_flush_tlb, void, )                                                              \
   f(ref_read_pte, difftest_read_pte, bool, uint64_t, uint64_t*)                                             \
   f(ref_write_pte, difftest_write_pte, bool, uint64_t, uint64_t)                                             \

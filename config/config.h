@@ -23,6 +23,12 @@
 #define NUM_CORES 1
 #endif
 
+// A/D policy ABI: 0 follows envcfg.ADUE, 1 requires software-managed A/D.
+// Hardware-update verification (2) is reserved and currently rejected.
+#ifndef DIFFTEST_AD_POLICY
+#define DIFFTEST_AD_POLICY 0
+#endif
+
 #if defined(CPU_NUTSHELL)
 #elif defined(CPU_XIANGSHAN)
 #elif defined(CPU_ROCKET_CHIP)
