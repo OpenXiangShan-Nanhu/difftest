@@ -586,6 +586,8 @@ CheckResult Runtime::before_commit(unsigned hart, unsigned port, DiffTestState &
     if (address < load->operation.address || address - load->operation.address + size > 16 || address % size != 0 ||
         !in_pmem(address) || !in_pmem(address + size - 1))
       return unsupported("scalar load range is unaligned, split or outside modeled memory");
+    // A remote source may await another hart's REF step. Candidate bytes let REF
+    // advance; Checker retains final validation until every selected source is audited.
     std::vector<uint8_t> candidate;
     auto result = checker_.get_reference_candidate_load(load->operation.id, load->operation.attempt, candidate);
     if (!result)

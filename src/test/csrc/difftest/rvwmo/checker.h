@@ -29,11 +29,12 @@ public:
   CheckResult record_store(const MemoryStore &store, const MemoryOperation &operation,
                            StoreVerification verification = StoreVerification::Verified);
   CheckResult verify_store(const OperationId &operation, const MemoryStore &reference);
-  // Returns candidate expected bytes, not a proof that this load has passed PPO
-  // or value comparison. It neither consumes retirement nor mutates PPO state.
+  // Returns canonical expected bytes only after their source stores pass REF
+  // verification. This does not consume retirement or certify PPO/actual values.
   CheckResult get_expected_load(const OperationId &operation, uint32_t attempt, std::vector<uint8_t> &bytes);
-  // Provisional REF input may assume unresolved local stores preserve same-byte
-  // program order. Final canonical read-value and PPO checks remain mandatory.
+  // Provisional REF input may contain unaudited store bytes and assume unresolved
+  // local stores preserve same-byte program order. It only advances REF execution;
+  // source verification, canonical read-value and PPO checks remain mandatory.
   CheckResult get_reference_candidate_load(const OperationId &operation, uint32_t attempt, std::vector<uint8_t> &bytes);
   CheckResult observe_global(uint64_t address, const std::vector<uint8_t> &bytes, const std::vector<uint8_t> &mask,
                              const std::vector<MemoryWriter> &writers, const std::vector<MemoryWriter> &completed,
@@ -94,6 +95,7 @@ private:
   CheckResult failure_;
   CheckResult drain(uint32_t hart);
   CheckResult prepare(Retirement &retirement);
+  CheckResult require_verified_sources(const MemorySnapshot &snapshot) const;
   CheckResult remember_failure(CheckResult result);
 };
 

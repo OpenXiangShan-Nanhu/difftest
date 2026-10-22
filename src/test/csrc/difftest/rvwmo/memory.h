@@ -46,7 +46,8 @@ struct MemorySnapshot {
 };
 
 // Backing callbacks allow GlobalMem to reuse the existing golden memory allocation.
-// Callers provide independent REF-checked store bytes, never load-result bytes.
+// Store bytes may be provisional; Checker must audit them against REF before
+// accepting dependent retirements. DUT load-result bytes never populate this model.
 class Memory {
 public:
   using ReadGlobal = std::function<uint8_t(uint64_t)>;

@@ -125,6 +125,9 @@ CheckResult Checker::get_expected_load(const OperationId &operation, uint32_t at
     return pending(error);
   if (!error.empty())
     return remember_failure({CheckStatus::Violation, 0, error});
+  auto result = require_verified_sources(found->second.snapshot);
+  if (!result)
+    return remember_failure(result);
   bytes.clear();
   for (const auto &byte: found->second.snapshot.bytes)
     bytes.push_back(byte.value);
@@ -172,7 +175,7 @@ CheckResult Checker::observe_global(uint64_t address, const std::vector<uint8_t>
       return pending("global store completion has no observation rank");
     auto found = writers_.find(writer);
     if (found == writers_.end())
-      return pending("global completion precedes REF-verified store record");
+      return pending("global completion precedes local store record");
     const auto &operation = stores_.at(found->second);
     if (operation.write_time.valid && operation.write_time.rank != time.rank)
       return remember_failure(invalid("store has inconsistent global-completion timestamps"));
@@ -298,12 +301,28 @@ std::vector<OperationId> Checker::take_released_stores() {
   return released;
 }
 
+CheckResult Checker::require_verified_sources(const MemorySnapshot &snapshot) const {
+  for (size_t byte = 0; byte < snapshot.mask.size(); ++byte) {
+    if (!snapshot.mask[byte] || !snapshot.bytes[byte].writer)
+      continue;
+    auto writer = writers_.find(*snapshot.bytes[byte].writer);
+    if (writer == writers_.end())
+      return invalid("load snapshot writer has no registered store identity");
+    if (unverified_stores_.count(writer->second))
+      return pending("load source awaits independent REF store verification: hart=" +
+                     std::to_string(writer->second.hart) + " uid=" + std::to_string(writer->second.uid));
+  }
+  return {};
+}
+
 CheckResult Checker::prepare(Retirement &retirement) {
   for (auto &operation: retirement.instruction.memory) {
     if (operation.store) {
       auto store = stores_.find(operation.id);
       if (store == stores_.end())
         return pending("retired store awaits independently verified store record");
+      if (unverified_stores_.count(operation.id))
+        return pending("retired store awaits independent REF verification");
       operation.write_time = store->second.write_time;
       if (!operation.write_time.valid)
         return pending("retired store awaits global-completion timestamp");
@@ -330,6 +349,9 @@ CheckResult Checker::prepare(Retirement &retirement) {
       return pending(error);
     if (!error.empty())
       return {CheckStatus::Violation, 0, error};
+    auto verified = require_verified_sources(load->second.snapshot);
+    if (!verified)
+      return verified;
     if (operation.source_kind == ReadSourceKind::Observed) {
       operation.read_sources = observed.read_sources;
       if (operation.read_sources.size() != operation.byte_mask.size())
