@@ -79,6 +79,9 @@ class CoreGatewayBundle extends Bundle {
   val nonRegInterruptPendingEventDelayCnt: Int = 0
   val nonRegInterruptPendingEvent = new DiffNonRegInterruptPendingEvent
 
+  val mhpmeventOverflowEventDelayCnt: Int = 0
+  val mhpmeventOverflowEvent = new DiffMhpmeventOverflowEvent
+
   val syncAIAEventDelayCnt: Int = 1
   val syncAIAEvent = new DiffSyncAIAEvent
 
@@ -143,6 +146,7 @@ class CoreGatewayBundle extends Bundle {
       (archIntRegState, archIntRegDelayCnt) :+
       (archFpRegState, archFpRegDelayCnt) :+
       (nonRegInterruptPendingEvent, nonRegInterruptPendingEventDelayCnt) :+
+      (mhpmeventOverflowEvent, mhpmeventOverflowEventDelayCnt) :+
       (syncAIAEvent, syncAIAEventDelayCnt) :+
       (trapEvent, trapEventDelayCnt) :+
       (lrscEvent, lrscEventDelayCnt)
