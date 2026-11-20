@@ -204,7 +204,10 @@ private class MemRWHelper extends MemHelper with HasReadPort with HasWritePort {
     "MemRWHelper.v",
     s"""
        |`ifdef SYNTHESIS
+       |`ifndef DIFFTEST_SIM_DPIC
+       |  // Hardware/emulation uses local RAM; RTL simulation keeps the C++ image loader.
        |  `define DISABLE_DIFFTEST_RAM_DPIC
+       |`endif // DIFFTEST_SIM_DPIC
        |`endif
        |$r_dpic
        |$w_dpic

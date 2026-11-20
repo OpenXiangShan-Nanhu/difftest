@@ -51,7 +51,10 @@ class FlashHelper extends ExtModule with HasExtModuleInline {
     "FlashHelper.v",
     """
       |`ifdef SYNTHESIS
+      |`ifndef DIFFTEST_SIM_DPIC
+      |  // RTL simulation must read the same flash image that is loaded by flash.cpp.
       |  `define DISABLE_DIFFTEST_FLASH_DPIC
+      |`endif // DIFFTEST_SIM_DPIC
       |`endif // SYNTHESIS
       |`ifndef DISABLE_DIFFTEST_FLASH_DPIC
       |import "DPI-C" function void flash_read
