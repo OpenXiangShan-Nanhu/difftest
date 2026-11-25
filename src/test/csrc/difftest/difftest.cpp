@@ -483,6 +483,9 @@ bool Difftest::in_replay_range() {
 }
 
 void Difftest::replay_snapshot() {
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+  replay_aia_sync = aia_sync;
+#endif
   memcpy(state_ss, state, sizeof(DiffState));
   memcpy(proxy_reg_ss, &proxy->regs_int, proxy_reg_size);
   proxy->ref_csrcpy(squash_csr_buf, REF_TO_DUT);
@@ -493,6 +496,9 @@ void Difftest::replay_snapshot() {
 }
 
 void Difftest::do_replay() {
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+  aia_sync = replay_aia_sync;
+#endif
   auto info = dut->trace_info;
   replay_status.in_replay = true;
   replay_status.trace_head = info.trace_head;
@@ -563,6 +569,10 @@ inline int Difftest::check_all() {
     return 1;
   }
   do_first_instr_commit();
+
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+  if (record_aia_snapshot()) return 1;
+#endif
 
   // Each cycle is checked for an store event, and recorded in queue.
   // It is checked every time an instruction is committed and queue has content.
@@ -1056,6 +1066,12 @@ int Difftest::do_instr_commit(int i) {
   // MMIO accessing should not be a branch or jump, just +2/+4 to get the next pc
   // to skip the checking of an instruction, just copy the reg state to reference design
   if (dut->commit[i].skip || (DEBUG_MODE_SKIP(dut->commit[i].valid, dut->commit[i].pc, dut->commit[i].inst))) {
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+    if (aia_sync.pending.count(dut->commit[i].tlbId)) {
+      Info("Core %d cannot skip an AIA CSR snapshot\n", id);
+      return 1;
+    }
+#endif
 #if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_TLBEVENT) && !defined(CONFIG_DIFFTEST_SQUASH)
     pending_translations[dut->commit[i].tlbId].clear();
 #endif
@@ -1100,6 +1116,10 @@ int Difftest::do_instr_commit(int i) {
 
   // Default: single step exec
   // when there's a fused instruction, let proxy execute more instructions.
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+  bool restore_aia = false;
+  if (apply_aia_snapshot(i, restore_aia)) return 1;
+#endif
   int result = 0;
   for (int j = 0; j < dut->commit[i].nFused + 1; j++) {
 #if NUM_CORES > 1 && !defined(CONFIG_DIFFTEST_SQUASH) && !defined(BASIC_DIFFTEST_ONLY)
@@ -1113,6 +1133,9 @@ int Difftest::do_instr_commit(int i) {
     } else
 #endif
     proxy->ref_exec(1);
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+    if (restore_aia) proxy->sync_aia(aia_sync.latest);
+#endif
 #if NUM_CORES > 1 && defined(CONFIG_DIFFTEST_TLBEVENT) && !defined(CONFIG_DIFFTEST_SQUASH)
     if (tlb_mismatch) {
       result = 1;
@@ -2596,32 +2619,75 @@ void Difftest::do_raise_critical_error() {
 #endif
 
 #ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
-void Difftest::do_sync_aia() {
-  if (dut->sync_aia.valid) {
-    struct FromAIA aia = {};
-    aia.mtopei = dut->sync_aia.mtopei;
-    aia.stopei = dut->sync_aia.stopei;
-    aia.vstopei = dut->sync_aia.vstopei;
-    aia.hgeip = dut->sync_aia.hgeip;
-    aia.mEidelivery = dut->sync_aia.mEidelivery;
-    aia.sEidelivery = dut->sync_aia.sEidelivery;
-    aia.vsEidelivery = dut->sync_aia.vsEidelivery;
-    aia.mEithreshold = dut->sync_aia.mEithreshold;
-    aia.sEithreshold = dut->sync_aia.sEithreshold;
-    aia.vsEithreshold = dut->sync_aia.vsEithreshold;
-    for (int i = 0; i < FromAIA::IMSIC_EIX_NUM; i++) {
-      aia.mEip[i] = dut->sync_aia.mEip[i];
-      aia.sEip[i] = dut->sync_aia.sEip[i];
-      aia.vsEip[i] = dut->sync_aia.vsEip[i];
-      aia.mEie[i] = dut->sync_aia.mEie[i];
-      aia.sEie[i] = dut->sync_aia.sEie[i];
-      aia.vsEie[i] = dut->sync_aia.vsEie[i];
-    }
-    aia.mIprio0 = dut->sync_aia.mIprio0;
-    aia.sIprio0 = dut->sync_aia.sIprio0;
-    proxy->sync_aia(aia);
-    dut->sync_aia.valid = 0;
+FromAIA Difftest::get_aia_state() const {
+  FromAIA aia = {};
+  aia.mtopei = dut->sync_aia.mtopei;
+  aia.stopei = dut->sync_aia.stopei;
+  aia.vstopei = dut->sync_aia.vstopei;
+  aia.hgeip = dut->sync_aia.hgeip;
+  aia.mEidelivery = dut->sync_aia.mEidelivery;
+  aia.sEidelivery = dut->sync_aia.sEidelivery;
+  aia.vsEidelivery = dut->sync_aia.vsEidelivery;
+  aia.mEithreshold = dut->sync_aia.mEithreshold;
+  aia.sEithreshold = dut->sync_aia.sEithreshold;
+  aia.vsEithreshold = dut->sync_aia.vsEithreshold;
+  for (int i = 0; i < FromAIA::IMSIC_EIX_NUM; i++) {
+    aia.mEip[i] = dut->sync_aia.mEip[i];
+    aia.sEip[i] = dut->sync_aia.sEip[i];
+    aia.vsEip[i] = dut->sync_aia.vsEip[i];
+    aia.mEie[i] = dut->sync_aia.mEie[i];
+    aia.sEie[i] = dut->sync_aia.sEie[i];
+    aia.vsEie[i] = dut->sync_aia.vsEie[i];
   }
+  aia.mIprio0 = dut->sync_aia.mIprio0;
+  aia.sIprio0 = dut->sync_aia.sIprio0;
+  return aia;
+}
+
+int Difftest::record_aia_snapshot() {
+  auto &event = dut->sync_aia;
+  if (!event.valid) return 0;
+  const bool request = event.csrValid && !event.csrFlush;
+  if (event.csrFlush) aia_sync.pending.erase(event.csrRobId);
+  event.csrValid = event.csrFlush = 0;
+  if (!request) return 0;
+  // A live sync on the request edge is still the same pre-state, not a later update.
+  AiaCsrSnapshot snapshot{get_aia_state(), aia_sync.epoch + (event.stateValid ? 1 : 0), event.csrAddr};
+  if (event.csrRobId >= 1024 || !aia_sync.pending.emplace(event.csrRobId, snapshot).second) {
+    Info("Core %d duplicate/invalid AIA CSR snapshot token=%u\n", id, event.csrRobId);
+    return 1;
+  }
+  return 0;
+}
+
+int Difftest::apply_aia_snapshot(int index, bool &restore) {
+  restore = false;
+  const auto &commit = dut->commit[index];
+  auto it = aia_sync.pending.find(commit.tlbId);
+  if (it == aia_sync.pending.end()) return 0;
+  const auto instr = commit.instr;
+  const auto csr = (instr >> 20) & 0xfff;
+  if (commit.nFused || (instr & 0x7f) != 0x73 || ((instr >> 12) & 3) == 0 ||
+      csr != it->second.csr || (csr != 0x351 && csr != 0x151 && csr != 0x251)) {
+    Info("Core %d AIA snapshot/commit mismatch: pc=0x%lx instr=0x%x token=%u\n",
+         id, commit.pc, instr, commit.tlbId);
+    return 1;
+  }
+  restore = aia_sync.epoch > it->second.epoch;
+  proxy->sync_aia(it->second.state);
+  aia_sync.pending.erase(it);
+  return 0;
+}
+
+void Difftest::do_sync_aia() {
+  if (!dut->sync_aia.valid) return;
+  // Snapshot-only frames must not change the original live synchronization schedule.
+  if (dut->sync_aia.stateValid) {
+    aia_sync.latest = get_aia_state();
+    ++aia_sync.epoch;
+    proxy->sync_aia(aia_sync.latest);
+  }
+  dut->sync_aia.valid = 0;
 }
 #endif
 

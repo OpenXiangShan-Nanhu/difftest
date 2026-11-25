@@ -23,6 +23,7 @@
 #include "golden.h"
 #include "refproxy.h"
 #include "external_af.h"
+#include <map>
 #include <queue>
 #include <vector>
 #ifdef FUZZING
@@ -390,6 +391,25 @@ protected:
   // Nanhu CSR instructions are noSpec/blockBackward and use a non-pipelined FU,
   // so one strict snapshot slot is sufficient. Overlap is a protocol mismatch.
   CsrReadSnapshot csr_read_snapshot = {};
+#endif
+
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+  struct AiaCsrSnapshot {
+    FromAIA state;
+    uint64_t epoch;
+    uint16_t csr;
+  };
+  struct AiaSyncState {
+    FromAIA latest = {};
+    uint64_t epoch = 0;
+    std::map<uint16_t, AiaCsrSnapshot> pending;
+  } aia_sync;
+#ifdef CONFIG_DIFFTEST_REPLAY
+  AiaSyncState replay_aia_sync;
+#endif
+  FromAIA get_aia_state() const;
+  int record_aia_snapshot();
+  int apply_aia_snapshot(int index, bool &restore);
 #endif
 
   uint64_t nemu_this_pc;

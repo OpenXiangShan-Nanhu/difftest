@@ -407,6 +407,11 @@ class CriticalErrorEvent extends DifftestBaseBundle with HasValid {
 
 class AIAEvent extends DifftestBaseBundle with HasValid {
   private val imsicEixNum = 32
+  val stateValid = Bool()
+  val csrValid = Bool()
+  val csrRobId = UInt(10.W)
+  val csrAddr = UInt(12.W)
+  val csrFlush = Bool()
   val mtopei = UInt(64.W)
   val stopei = UInt(64.W)
   val vstopei = UInt(64.W)
