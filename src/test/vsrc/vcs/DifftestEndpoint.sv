@@ -18,6 +18,9 @@
 `include "DifftestMacros.v"
 module DifftestEndpoint(
   input  wire        clock,
+`ifdef IT_CLOCK_CONFIG
+  input  wire        io_clock,
+`endif
   input  wire        reset,
 
 `ifdef ENABLE_WORKLOAD_SWITCH
@@ -254,10 +257,12 @@ end
 always @(posedge clock) begin
   if (!reset) begin
 `ifdef WITH_DRAMSIM3
+`ifndef IT_CLOCK_CONFIG
     /* tick DRAMSIM3 if required */
     if (n_cycles) begin
       simv_tick();
     end
+`endif
 `endif // WITH_DRAMSIM3
 
     // difftest
@@ -275,6 +280,13 @@ always @(posedge clock) begin
     end
   end
 end
+`ifdef IT_CLOCK_CONFIG
+`ifdef WITH_DRAMSIM3
+always @(posedge io_clock) begin
+  if (!reset && n_cycles) simv_tick();
+end
+`endif
+`endif
 
 /* simulation step control */
 `ifdef CONFIG_DIFFTEST_DEFERRED_RESULT
@@ -376,7 +388,11 @@ assign workload_switch = simv_result == `SIMV_DONE;
  * uart output
  */
 assign difftest_uart_in_ch = 8'hff;
+`ifdef IT_CLOCK_CONFIG
+always @(posedge io_clock) begin
+`else
 always @(posedge clock) begin
+`endif
   if (!reset && difftest_uart_out_valid) begin
     if(difftest_uart_out_ch[7] == 0) begin
       $fwrite(32'h8000_0001, "%c", difftest_uart_out_ch);

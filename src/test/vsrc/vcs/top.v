@@ -25,8 +25,15 @@ module tb_top();
 `ifdef WIRE_CLK
 wire        clock;
 `else
+`ifdef IT_CLOCK_CONFIG
+wire        clock;
+`else
 reg         clock;
+`endif
 `endif // WIRE_CLK
+`ifdef IT_CLOCK_CONFIG
+wire        core_clock;
+`endif
 reg         reset;
 
 `ifdef ENABLE_WORKLOAD_SWITCH
@@ -124,6 +131,9 @@ end
 `endif // RESET_COUNTER
 
 `ifndef WIRE_CLK
+`ifdef IT_CLOCK_CONFIG
+ITClockGen clocks (.noc_clock(clock), .core_clock(core_clock));
+`else
 initial begin
   clock = 0;
   `ifndef PALLADIUM
@@ -134,10 +144,35 @@ initial begin
   forever #2.5 clock = ~clock;
   `endif
 end
+`endif // IT_CLOCK_CONFIG
+`else
+`ifdef IT_CLOCK_CONFIG
+assign core_clock = clock;
+`endif
 `endif // WIRE_CLK
+
+// Reject profiles that this build cannot generate instead of ignoring them.
+`ifndef IT_CLOCK_CONFIG
+initial begin : check_clock_profile
+  string profile;
+  if ($value$plusargs("IT_CLOCK_PROFILE=%s", profile) && profile != "sync")
+    $fatal(1, "IT_CLOCK_PROFILE requires a build with IT_CLOCK_CONFIG");
+end
+`else
+`ifdef WIRE_CLK
+initial begin : check_external_clock_profile
+  string profile;
+  if ($value$plusargs("IT_CLOCK_PROFILE=%s", profile) && profile != "sync")
+    $fatal(1, "IT_CLOCK_PROFILE cannot override WIRE_CLK/PALLADIUM clocks");
+end
+`endif
+`endif
 
 SimTop sim(
   .clock(clock),
+`ifdef IT_CLOCK_CONFIG
+  .core_clock(core_clock),
+`endif
   .reset(reset),
   .difftest_logCtrl_begin(difftest_logCtrl_begin),
   .difftest_logCtrl_end(difftest_logCtrl_end),
@@ -156,7 +191,12 @@ SimTop sim(
 );
 
 DifftestEndpoint difftest(
+`ifdef IT_CLOCK_CONFIG
+  .clock(core_clock),
+  .io_clock(clock),
+`else
   .clock(clock),
+`endif
   .reset(reset),
 `ifdef ENABLE_WORKLOAD_SWITCH
   .workload_switch(workload_switch),

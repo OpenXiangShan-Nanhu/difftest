@@ -86,6 +86,7 @@ module SystemExtensionWrapper #(
   input                        m_axi_dma_r_bits_last,
   output [EXT_INTR_BITS - 1:0] ext_intr,
   input                        i_top_clk,
+  input                        i_core_clk,
   output                       o_noc_clk,
   output [NR_CC-1:0]           o_cpu_clk,
   input                        i_top_rst,
@@ -93,7 +94,11 @@ module SystemExtensionWrapper #(
 );
 
   assign o_noc_clk = i_top_clk;
+`ifdef IT_CLOCK_CONFIG
+  assign o_cpu_clk = {NR_CC{i_core_clk}};
+`else
   assign o_cpu_clk = {NR_CC{i_top_clk}};
+`endif
   assign o_noc_rst = i_top_rst;
   assign s_axi_cfg_aw_ready = 1'h0;
   assign s_axi_cfg_ar_ready = 1'h0;
